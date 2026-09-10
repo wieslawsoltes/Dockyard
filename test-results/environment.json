@@ -1,0 +1,10 @@
+{
+  "sourceCommit": "1523c3d1d2956f50de0d96badd240bb9ec6cd11e",
+  "runUrl": "https://github.com/wieslawsoltes/Dockyard/actions/runs/34531206706",
+  "node": "v22.23.2",
+  "typescript": "Version 5.8.3",
+  "python": "3.12.14",
+  "playwright": "1.57.0",
+  "chromium": "143.0.7499.4",
+  "httpBrowserSmoke": "All three entry points; real origin storage and reload; see site-results.json"
+}

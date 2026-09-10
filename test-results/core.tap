@@ -1,0 +1,350 @@
+
+> avalondock-web@0.1.0 test
+> node --test tests/*.test.mjs
+
+TAP version 13
+# Subtest: GridLength matches pixel, star and auto semantics
+ok 1 - GridLength matches pixel, star and auto semantics
+  ---
+  duration_ms: 1.373217
+  type: 'test'
+  ...
+# Subtest: show strategy uses upstream numeric flags
+ok 2 - show strategy uses upstream numeric flags
+  ---
+  duration_ms: 0.61432
+  type: 'test'
+  ...
+# Subtest: events are removable and use sender/args
+ok 3 - events are removable and use sender/args
+  ---
+  duration_ms: 0.177849
+  type: 'test'
+  ...
+# Subtest: observable properties emit changing before changed
+ok 4 - observable properties emit changing before changed
+  ---
+  duration_ms: 0.485004
+  type: 'test'
+  ...
+# Subtest: collections support indexing, replacement, ordering and removal
+ok 5 - collections support indexing, replacement, ordering and removal
+  ---
+  duration_ms: 0.636924
+  type: 'test'
+  ...
+# Subtest: typed reparenting detaches old owner and selection follows
+ok 6 - typed reparenting detaches old owner and selection follows
+  ---
+  duration_ms: 4.995937
+  type: 'test'
+  ...
+# Subtest: cycles and wrong pane types are rejected before mutation
+ok 7 - cycles and wrong pane types are rejected before mutation
+  ---
+  duration_ms: 1.497576
+  type: 'test'
+  ...
+# Subtest: duplicate node and content identifiers are rejected on direct edits
+ok 8 - duplicate node and content identifiers are rejected on direct edits
+  ---
+  duration_ms: 1.822937
+  type: 'test'
+  ...
+# Subtest: one selected item per pane, active model vs content
+ok 9 - one selected item per pane, active model vs content
+  ---
+  duration_ms: 1.379807
+  type: 'test'
+  ...
+# Subtest: float and dock document restore original tab index
+ok 10 - float and dock document restore original tab index
+  ---
+  duration_ms: 4.232272
+  type: 'test'
+  ...
+# Subtest: tool pane floats together and restores its tabs
+ok 11 - tool pane floats together and restores its tabs
+  ---
+  duration_ms: 2.502936
+  type: 'test'
+  ...
+# Subtest: floating root replacement is typed and atomic
+ok 12 - floating root replacement is typed and atomic
+  ---
+  duration_ms: 0.168925
+  type: 'test'
+  ...
+# Subtest: capability flags gate model and command operations
+ok 13 - capability flags gate model and command operations
+  ---
+  duration_ms: 1.982929
+  type: 'test'
+  ...
+# Subtest: disabled content cannot be activated, dragged, floated or docked
+ok 14 - disabled content cannot be activated, dragged, floated or docked
+  ---
+  duration_ms: 1.074576
+  type: 'test'
+  ...
+# Subtest: document restrictions prohibit tool panes, root edges and auto-hide
+ok 15 - document restrictions prohibit tool panes, root edges and auto-hide
+  ---
+  duration_ms: 0.896747
+  type: 'test'
+  ...
+# Subtest: tools dock at Left edge
+ok 16 - tools dock at Left edge
+  ---
+  duration_ms: 1.569894
+  type: 'test'
+  ...
+# Subtest: tools dock at Right edge
+ok 17 - tools dock at Right edge
+  ---
+  duration_ms: 1.534852
+  type: 'test'
+  ...
+# Subtest: tools dock at Top edge
+ok 18 - tools dock at Top edge
+  ---
+  duration_ms: 1.794364
+  type: 'test'
+  ...
+# Subtest: tools dock at Bottom edge
+ok 19 - tools dock at Bottom edge
+  ---
+  duration_ms: 2.754847
+  type: 'test'
+  ...
+# Subtest: document split Left and merge
+ok 20 - document split Left and merge
+  ---
+  duration_ms: 2.811624
+  type: 'test'
+  ...
+# Subtest: document split Right and merge
+ok 21 - document split Right and merge
+  ---
+  duration_ms: 2.973588
+  type: 'test'
+  ...
+# Subtest: document split Top and merge
+ok 22 - document split Top and merge
+  ---
+  duration_ms: 3.519234
+  type: 'test'
+  ...
+# Subtest: document split Bottom and merge
+ok 23 - document split Bottom and merge
+  ---
+  duration_ms: 3.234152
+  type: 'test'
+  ...
+# Subtest: same-pane tab reordering handles forward and backward insertion
+ok 24 - same-pane tab reordering handles forward and backward insertion
+  ---
+  duration_ms: 1.598848
+  type: 'test'
+  ...
+# Subtest: tab group commands use visual horizontal/vertical semantics
+ok 25 - tab group commands use visual horizontal/vertical semantics
+  ---
+  duration_ms: 1.96327
+  type: 'test'
+  ...
+# Subtest: mixed-orientation policy disables incompatible nesting
+ok 26 - mixed-orientation policy disables incompatible nesting
+  ---
+  duration_ms: 1.386297
+  type: 'test'
+  ...
+# Subtest: group auto-hide and pin restore original pane order
+ok 27 - group auto-hide and pin restore original pane order
+  ---
+  duration_ms: 2.968551
+  type: 'test'
+  ...
+# Subtest: auto-hide requires all pane children to permit it
+ok 28 - auto-hide requires all pane children to permit it
+  ---
+  duration_ms: 0.903326
+  type: 'test'
+  ...
+# Subtest: hide is reversible and differs from close
+ok 29 - hide is reversible and differs from close
+  ---
+  duration_ms: 2.047247
+  type: 'test'
+  ...
+# Subtest: cancelable closing runs model and manager handlers
+ok 30 - cancelable closing runs model and manager handlers
+  ---
+  duration_ms: 0.610944
+  type: 'test'
+  ...
+# Subtest: cancelable hiding leaves content in place
+ok 31 - cancelable hiding leaves content in place
+  ---
+  duration_ms: 1.059793
+  type: 'test'
+  ...
+# Subtest: closing a floating tool group preflights cancellation atomically
+ok 32 - closing a floating tool group preflights cancellation atomically
+  ---
+  duration_ms: 1.928187
+  type: 'test'
+  ...
+# Subtest: close all respects individual cancellation and CanClose
+ok 33 - close all respects individual cancellation and CanClose
+  ---
+  duration_ms: 1.127916
+  type: 'test'
+  ...
+# Subtest: JSON roundtrip retains content identity, flags and topology
+ok 34 - JSON roundtrip retains content identity, flags and topology
+  ---
+  duration_ms: 3.063204
+  type: 'test'
+  ...
+# Subtest: XML roundtrip handles native sections, floats, hidden and entities
+ok 35 - XML roundtrip handles native sections, floats, hidden and entities
+  ---
+  duration_ms: 7.197788
+  type: 'test'
+  ...
+# Subtest: native minimal AvalonDock XML imports
+ok 36 - native minimal AvalonDock XML imports
+  ---
+  duration_ms: 1.78542
+  type: 'test'
+  ...
+# Subtest: serialization callback resolves and cancels content
+ok 37 - serialization callback resolves and cancels content
+  ---
+  duration_ms: 2.96158
+  type: 'test'
+  ...
+# Subtest: serialization supports writer but not pretend filesystem overload
+ok 38 - serialization supports writer but not pretend filesystem overload
+  ---
+  duration_ms: 2.23447
+  type: 'test'
+  ...
+# Subtest: invalid JSON import is atomic and prototype-safe
+ok 39 - invalid JSON import is atomic and prototype-safe
+  ---
+  duration_ms: 3.636912
+  type: 'test'
+  ...
+# Subtest: malformed or hostile XML is rejected without changing layout
+ok 40 - malformed or hostile XML is rejected without changing layout
+  ---
+  duration_ms: 1.921937
+  type: 'test'
+  ...
+# Subtest: serializer rejects oversized and deeply nested inputs
+ok 41 - serializer rejects oversized and deeply nested inputs
+  ---
+  duration_ms: 5.184372
+  type: 'test'
+  ...
+# Subtest: undo/redo restore model structure and retained content
+ok 42 - undo/redo restore model structure and retained content
+  ---
+  duration_ms: 2.977684
+  type: 'test'
+  ...
+# Subtest: direct observable edits are coalesced into history
+ok 43 - direct observable edits are coalesced into history
+  ---
+  duration_ms: 1.635464
+  type: 'test'
+  ...
+# Subtest: selection alone is not a history operation
+ok 44 - selection alone is not a history operation
+  ---
+  duration_ms: 0.657284
+  type: 'test'
+  ...
+# Subtest: transactions roll back exceptions and preserve content
+ok 45 - transactions roll back exceptions and preserve content
+  ---
+  duration_ms: 1.572949
+  type: 'test'
+  ...
+# Subtest: BeginUpdate batches several changes into one undo
+ok 46 - BeginUpdate batches several changes into one undo
+  ---
+  duration_ms: 2.304436
+  type: 'test'
+  ...
+# Subtest: history limit and redo invalidation
+ok 47 - history limit and redo invalidation
+  ---
+  duration_ms: 3.730242
+  type: 'test'
+  ...
+# Subtest: observable sources add/remove documents and project styles
+ok 48 - observable sources add/remove documents and project styles
+  ---
+  duration_ms: 2.79005
+  type: 'test'
+  ...
+# Subtest: close removes source item and array RefreshSources reconciles changes
+ok 49 - close removes source item and array RefreshSources reconciles changes
+  ---
+  duration_ms: 2.767547
+  type: 'test'
+  ...
+# Subtest: source identities survive layout deserialization
+ok 50 - source identities survive layout deserialization
+  ---
+  duration_ms: 2.416385
+  type: 'test'
+  ...
+# Subtest: layout insertion strategy can choose destination
+ok 51 - layout insertion strategy can choose destination
+  ---
+  duration_ms: 1.063128
+  type: 'test'
+  ...
+# Subtest: invalid handled insertion strategy rolls back
+ok 52 - invalid handled insertion strategy rolls back
+  ---
+  duration_ms: 1.497566
+  type: 'test'
+  ...
+# Subtest: command CanExecuteChanged is raised when capability changes
+ok 53 - command CanExecuteChanged is raised when capability changes
+  ---
+  duration_ms: 1.344634
+  type: 'test'
+  ...
+# Subtest: independent managers reject accidental reparenting and support explicit transfer
+ok 54 - independent managers reject accidental reparenting and support explicit transfer
+  ---
+  duration_ms: 2.83557
+  type: 'test'
+  ...
+# Subtest: storage APIs are harmless without a storage provider
+ok 55 - storage APIs are harmless without a storage provider
+  ---
+  duration_ms: 0.79965
+  type: 'test'
+  ...
+# Subtest: Dispose releases ownership and rejects future transactions
+ok 56 - Dispose releases ownership and rejects future transactions
+  ---
+  duration_ms: 0.800461
+  type: 'test'
+  ...
+1..56
+# tests 56
+# suites 0
+# pass 56
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 211.519338

@@ -1,0 +1,5 @@
+
+> avalondock-web@0.1.0 build
+> node scripts/build.mjs
+
+Built 11 modules; 177.8 KiB classic bundle.

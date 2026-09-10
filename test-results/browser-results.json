@@ -1,0 +1,178 @@
+{
+  "browser": "143.0.7499.4",
+  "mode": "Chromium offline standalone document; real DOM and PointerEvents",
+  "passed": 34,
+  "failed": 0,
+  "tests": [
+    {
+      "name": "Standalone runtime: 14 content models, four panes, retained DOM, no dependencies",
+      "passed": true,
+      "seconds": 0.3
+    },
+    {
+      "name": "Editable buffers survive tab switching and model deserialization with node identity",
+      "passed": true,
+      "seconds": 0.667
+    },
+    {
+      "name": "Live counter, input and canvas survive floating and redocking",
+      "passed": true,
+      "seconds": 0.677
+    },
+    {
+      "name": "Tab drag: same-pane reordering and insertion marker",
+      "passed": true,
+      "seconds": 0.732
+    },
+    {
+      "name": "Tab drag: four-way docking preview and split operation",
+      "passed": true,
+      "seconds": 0.744
+    },
+    {
+      "name": "Pointer Escape cancellation leaves layout unchanged",
+      "passed": true,
+      "seconds": 0.738
+    },
+    {
+      "name": "Ctrl-drag creates in-page floating window and physical resize works",
+      "passed": true,
+      "seconds": 1.186
+    },
+    {
+      "name": "Floating title movement, maximize/restore and docking",
+      "passed": true,
+      "seconds": 1.129
+    },
+    {
+      "name": "Tool title drag moves its entire group to a root edge",
+      "passed": true,
+      "seconds": 0.699
+    },
+    {
+      "name": "Auto-hide pin, rail peek and re-pin preserve grouped tools",
+      "passed": true,
+      "seconds": 0.612
+    },
+    {
+      "name": "Auto-hide opens by mouse hover and dismisses by Escape",
+      "passed": true,
+      "seconds": 0.814
+    },
+    {
+      "name": "Splitter physical drag respects minimums and commits undo history",
+      "passed": true,
+      "seconds": 0.816
+    },
+    {
+      "name": "Focused splitter supports keyboard resizing",
+      "passed": true,
+      "seconds": 0.367
+    },
+    {
+      "name": "Context commands, disabled capabilities and canceled close",
+      "passed": true,
+      "seconds": 0.842
+    },
+    {
+      "name": "Property inspector updates the live title and capability flags",
+      "passed": true,
+      "seconds": 0.472
+    },
+    {
+      "name": "Keyboard tab selection, reorder, F6 and MRU navigator",
+      "passed": true,
+      "seconds": 0.65
+    },
+    {
+      "name": "Observable source demo creates/removes real documents",
+      "passed": true,
+      "seconds": 0.686
+    },
+    {
+      "name": "All six themes and four workspace presets render without errors",
+      "passed": true,
+      "seconds": 1.077
+    },
+    {
+      "name": "Sample app menu and command palette invoke actual commands",
+      "passed": true,
+      "seconds": 0.636
+    },
+    {
+      "name": "XML file import roundtrips using real file-input change event",
+      "passed": true,
+      "seconds": 0.449
+    },
+    {
+      "name": "Declarative custom element creates an isolated docking manager",
+      "passed": true,
+      "seconds": 0.503
+    },
+    {
+      "name": "Factory cleanup runs on replacement/release/disposal, not on docking",
+      "passed": true,
+      "seconds": 0.478
+    },
+    {
+      "name": "DOM event cancellation is honored for document closing",
+      "passed": true,
+      "seconds": 0.32
+    },
+    {
+      "name": "Touch pointer path docks content using PointerEvents",
+      "passed": true,
+      "seconds": 0.445
+    },
+    {
+      "name": "Browser popup denial is reported without corrupting the layout",
+      "passed": true,
+      "seconds": 0.356
+    },
+    {
+      "name": "Native browser pop-out preserves content and docks back",
+      "passed": true,
+      "seconds": 0.762
+    },
+    {
+      "name": "500-tab workload mounts one body and keeps frame work coalesced",
+      "passed": true,
+      "seconds": 0.432
+    },
+    {
+      "name": "Mobile-size focus workspace remains editable without application overflow",
+      "passed": true,
+      "seconds": 0.453
+    },
+    {
+      "name": "State-preserving DOM moves retain a live iframe context",
+      "passed": true,
+      "seconds": 0.56
+    },
+    {
+      "name": "Open browser popup can dock back after a layout reload",
+      "passed": true,
+      "seconds": 0.6
+    },
+    {
+      "name": "Content factory failures are isolated to their own panel",
+      "passed": true,
+      "seconds": 0.473
+    },
+    {
+      "name": "Measured dimensions and absolute-size splitter lock are honored",
+      "passed": true,
+      "seconds": 0.789
+    },
+    {
+      "name": "Native ES module entry and sample execute under browser module semantics",
+      "passed": true,
+      "seconds": 0.708
+    },
+    {
+      "name": "Minimal declarative integration retains editor state through float and restore",
+      "passed": true,
+      "seconds": 0.824
+    }
+  ]
+}

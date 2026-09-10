@@ -1,0 +1,39 @@
+
+> avalondock-web@0.1.0 test:browser
+> python tests/browser.py
+
+PASS Standalone runtime: 14 content models, four panes, retained DOM, no dependencies
+PASS Editable buffers survive tab switching and model deserialization with node identity
+PASS Live counter, input and canvas survive floating and redocking
+PASS Tab drag: same-pane reordering and insertion marker
+PASS Tab drag: four-way docking preview and split operation
+PASS Pointer Escape cancellation leaves layout unchanged
+PASS Ctrl-drag creates in-page floating window and physical resize works
+PASS Floating title movement, maximize/restore and docking
+PASS Tool title drag moves its entire group to a root edge
+PASS Auto-hide pin, rail peek and re-pin preserve grouped tools
+PASS Auto-hide opens by mouse hover and dismisses by Escape
+PASS Splitter physical drag respects minimums and commits undo history
+PASS Focused splitter supports keyboard resizing
+PASS Context commands, disabled capabilities and canceled close
+PASS Property inspector updates the live title and capability flags
+PASS Keyboard tab selection, reorder, F6 and MRU navigator
+PASS Observable source demo creates/removes real documents
+PASS All six themes and four workspace presets render without errors
+PASS Sample app menu and command palette invoke actual commands
+PASS XML file import roundtrips using real file-input change event
+PASS Declarative custom element creates an isolated docking manager
+PASS Factory cleanup runs on replacement/release/disposal, not on docking
+PASS DOM event cancellation is honored for document closing
+PASS Touch pointer path docks content using PointerEvents
+PASS Browser popup denial is reported without corrupting the layout
+PASS Native browser pop-out preserves content and docks back
+PASS 500-tab workload mounts one body and keeps frame work coalesced
+PASS Mobile-size focus workspace remains editable without application overflow
+PASS State-preserving DOM moves retain a live iframe context
+PASS Open browser popup can dock back after a layout reload
+PASS Content factory failures are isolated to their own panel
+PASS Measured dimensions and absolute-size splitter lock are honored
+PASS Native ES module entry and sample execute under browser module semantics
+PASS Minimal declarative integration retains editor state through float and restore
+34/34 browser groups passed in Chromium 143.0.7499.4

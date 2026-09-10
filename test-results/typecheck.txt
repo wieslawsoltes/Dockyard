@@ -1,0 +1,4 @@
+
+> avalondock-web@0.1.0 check
+> tsc --noEmit --strict --lib es2022,dom --module nodenext --moduleResolution nodenext tests/types.ts
+

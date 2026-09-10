@@ -1,0 +1,25 @@
+{
+  "url": "http://127.0.0.1:38739/Dockyard/",
+  "browser": "143.0.7499.4",
+  "passed": 3,
+  "checks": [
+    {
+      "entry": "index.html",
+      "passed": true,
+      "errors": [],
+      "failedAssets": []
+    },
+    {
+      "entry": "standalone.html",
+      "passed": true,
+      "errors": [],
+      "failedAssets": []
+    },
+    {
+      "entry": "sample/minimal.html",
+      "passed": true,
+      "errors": [],
+      "failedAssets": []
+    }
+  ]
+}
