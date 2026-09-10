@@ -3,4 +3,5 @@ __pycache__/
 *.pyc
 .DS_Store
 *.tgz
+_site/
 test-results/failure-*.png
