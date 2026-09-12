@@ -1,5 +1,5 @@
 {
-  "package": "avalondock-web",
+  "package": "@wieslawsoltes/dockyard",
   "version": "0.1.0",
   "scope": "Implemented JavaScript exports only; not a completeness comparison with WPF AvalonDock.",
   "exports": {

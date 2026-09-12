@@ -5,3 +5,4 @@ __pycache__/
 *.tgz
 _site/
 test-results/failure-*.png
+.release/

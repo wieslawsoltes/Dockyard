@@ -1,5 +1,12 @@
 # AvalonDock Web · Dockyard
 
+[![CI and npm publishing](https://github.com/wieslawsoltes/Dockyard/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/wieslawsoltes/Dockyard/actions/workflows/ci.yml)
+[![npm version](https://img.shields.io/npm/v/%40wieslawsoltes%2Fdockyard)](https://www.npmjs.com/package/@wieslawsoltes/dockyard)
+[![npm downloads](https://img.shields.io/npm/dm/%40wieslawsoltes%2Fdockyard)](https://www.npmjs.com/package/@wieslawsoltes/dockyard)
+[![GitHub release](https://img.shields.io/github/v/release/wieslawsoltes/Dockyard)](https://github.com/wieslawsoltes/Dockyard/releases/latest)
+[![License](https://img.shields.io/github/license/wieslawsoltes/Dockyard)](LICENSE)
+[![Live demo](https://img.shields.io/badge/demo-GitHub%20Pages-blue)](https://wieslawsoltes.github.io/Dockyard/)
+
 **[Open the live Dockyard demo](https://wieslawsoltes.github.io/Dockyard/)** · [Minimal component example](https://wieslawsoltes.github.io/Dockyard/sample/minimal.html) · [Standalone demo](https://wieslawsoltes.github.io/Dockyard/standalone.html)
 
 A reusable, dependency-free JavaScript docking library and interactive sample application. It implements an AvalonDock-style observable layout model, PascalCase APIs, real DOM content hosting, document/tool panes, dock guides, floating windows, auto-hide, commands, and layout serialization.
@@ -76,7 +83,18 @@ Load the CSS, give the host a real height, and import the module:
 
 For a classic script, use `dist/avalondock.css` and `dist/avalondock.js`. The global is `AvalonDock`; `Xceed.Wpf.AvalonDock` is a compatibility namespace alias, not an affiliation claim. No bundler is required.
 
-For an existing package-based application, install this local folder or the supplied package archive. Import `avalondock-web` and `avalondock-web/styles.css`. The package is ESM; this delivery does not imply publication to the public npm registry. Type declarations are included. The source ZIP contains the complete showcase and tests; the installable component package contains the library, documentation, and minimal example.
+For a package-based application, install the public npm package:
+
+```sh
+npm install @wieslawsoltes/dockyard
+```
+
+```js
+import { DockingManager } from '@wieslawsoltes/dockyard';
+import '@wieslawsoltes/dockyard/styles.css';
+```
+
+The package uses ES modules and includes TypeScript declarations; `@wieslawsoltes/dockyard/model` exposes the layout model without registering the custom element. The source ZIP contains the complete showcase and tests; the installable component package contains the library, documentation, and minimal example. [Versioned releases](https://github.com/wieslawsoltes/Dockyard/releases) include the npm tarball, browser bundle, showcase archive and SHA-256 checksums. CI verifies installed consumers before publication and downloads the public npm package to verify the same bytes and provenance afterward. See [publishing instructions](docs/publishing.md) for release preparation and safe retries.
 
 ### Custom element
 
@@ -135,11 +153,16 @@ npm test
 node scripts/api-surface.mjs
 ```
 
-Type checking additionally requires an available TypeScript compiler. Browser tests require Python Playwright and a Chromium executable; the tests do not install them:
+Install the locked TypeScript toolchain to check declarations and the actual npm package. Browser tests additionally require Python Playwright and Chromium:
 
 ```sh
+npm ci
 npm run check
-CHROMIUM_EXECUTABLE=/path/to/chromium python tests/browser.py
+npm run test:package
+python -m pip install -r requirements-test.txt
+python -m playwright install chromium
+npm run test:browser
+python scripts/verify-site.py
 ```
 
 Recorded verification: **56 core tests, 34 Chromium browser groups, and the strict TypeScript integration check passed.** Chromium version: **144.0.7559.96**. The browser groups exercise both the classic distribution and the native ES-module entry. See [testing details](docs/TESTING.md) and `test-results/` for the actual environment and unverified areas.
