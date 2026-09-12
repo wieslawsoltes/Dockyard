@@ -1,0 +1,207 @@
+name: CI and distribution
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node: [22, 24]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - run: npm ci
+      - run: npm run check:all
+      - run: node scripts/package-test.mjs
+      - uses: actions/setup-python@v6
+        if: matrix.node == 24
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: requirements-test.txt
+      - name: Install browser test tools
+        if: matrix.node == 24
+        run: |
+          python -m pip install -r requirements-test.txt
+          python -m playwright install --with-deps chromium
+          python - <<'PYTHON'
+          import os
+          from playwright.sync_api import sync_playwright
+          with sync_playwright() as p:
+              with open(os.environ['GITHUB_ENV'], 'a') as env:
+                  env.write('CHROMIUM_EXECUTABLE=' + p.chromium.executable_path + '\n')
+          PYTHON
+      - name: Chromium interaction tests
+        if: matrix.node == 24
+        run: npm run test:browser
+      - name: HTTP entry points, origin persistence and screenshots
+        if: matrix.node == 24
+        run: python scripts/verify-site.py
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: verification-node-${{ matrix.node }}
+          path: |
+            test-results/
+          if-no-files-found: ignore
+
+  package:
+    needs: verify
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - run: npm run api
+      - run: npm pack --ignore-scripts
+      - name: Stage sample and immutable package download
+        run: |
+          packages=( *.tgz )
+          node scripts/stage-pages.mjs --tarball "$PWD/${packages[0]}"
+          cp _site/downloads/dockyard-source.zip .
+      - name: Archive standalone modules and demo
+        run: |
+          tar -czf dockyard-browser.tar.gz -C dist .
+          tar -czf dockyard-showcase.tar.gz -C _site .
+          sha256sum *.tgz *.tar.gz *.zip > SHA256SUMS.txt
+      - uses: actions/upload-artifact@v7
+        with:
+          name: distribution
+          path: |
+            *.tgz
+            *.tar.gz
+            *.zip
+            SHA256SUMS.txt
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: _site
+          include-hidden-files: true
+
+  pages:
+    needs: package
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/configure-pages@v6
+      - name: Deploy showcase
+        id: deployment
+        uses: actions/deploy-pages@v4
+      - name: Verify published sample and downloads
+        env:
+          SITE_URL: ${{ steps.deployment.outputs.page_url }}
+          EXPECTED_COMMIT: ${{ github.sha }}
+        run: |
+          node --input-type=module <<'JS'
+          import assert from 'node:assert/strict';
+          import {setTimeout as delay} from 'node:timers/promises';
+          let info;
+          for (let attempt = 0; attempt < 12; attempt++) {
+            const response = await fetch(new URL('deployment.json', process.env.SITE_URL), {cache:'no-store'});
+            info = response.ok ? await response.json() : null;
+            if (info?.commit === process.env.EXPECTED_COMMIT) break;
+            await delay(5_000);
+          }
+          assert.equal(info?.commit, process.env.EXPECTED_COMMIT, 'Published commit must match the verified build');
+          for (const name of ['', 'sample/minimal.html', 'standalone.html', 'src/index.js', 'dist/avalondock.js', 'dist/avalondock.css', `downloads/${info.packageFilename}`, 'downloads/dockyard-source.zip']) {
+            const response = await fetch(new URL(name, process.env.SITE_URL));
+            assert(response.ok, `${name}: HTTP ${response.status}`);
+            await response.arrayBuffer();
+            console.log('Verified public asset', name || 'index.html');
+          }
+          JS
+
+  release:
+    outputs:
+      tag: ${{ steps.release.outputs.tag }}
+      publish: ${{ steps.release.outputs.publish }}
+    needs: package
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          name: distribution
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          registry-url: https://npm.pkg.github.com
+          scope: '@wieslawsoltes'
+      - name: Publish GitHub package if version is new
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          package_name=$(node -p 'JSON.parse(require("fs").readFileSync("package.json", "utf8")).name')
+          package_version=$(node -p 'JSON.parse(require("fs").readFileSync("package.json", "utf8")).version')
+          if npm view "$package_name@$package_version" version --registry=https://npm.pkg.github.com >/dev/null 2>&1; then
+            echo "Package version already published."
+          else
+            packages=( *.tgz )
+            npm publish "${packages[0]}" --registry=https://npm.pkg.github.com --provenance=false --ignore-scripts
+          fi
+      - name: Publish versioned release and assets
+        id: release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          package_version=$(node -p 'JSON.parse(require("fs").readFileSync("package.json", "utf8")).version')
+          release_tag="v$package_version"
+          if gh release view "$release_tag" >/dev/null 2>&1; then
+            echo "Release already exists; immutable assets retained."
+          else
+            gh release create "$release_tag" --target "$GITHUB_SHA" --title "Dockyard $package_version" --notes-file docs/release-notes.md *.tgz *.tar.gz *.zip SHA256SUMS.txt
+          fi
+          echo "tag=$release_tag" >> "$GITHUB_OUTPUT"
+          git fetch --no-tags origin "refs/tags/$release_tag:refs/tags/$release_tag"
+          release_commit=$(git rev-list -n 1 "$release_tag")
+          if [[ "$release_commit" == "$GITHUB_SHA" ]]; then
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+            echo "Existing release belongs to another commit; npm publication skipped."
+          fi
+
+  npm:
+    needs: release
+    if: needs.release.outputs.publish == 'true'
+    permissions:
+      contents: read
+      id-token: write
+    uses: ./.github/workflows/npm-publish.yml
+    with:
+      tag: ${{ needs.release.outputs.tag }}
+      expected_sha: ${{ github.sha }}
+      dist_tag: latest
+    secrets:
+      NPM_TOKEN: ${{ secrets.NPM_TOKEN }}

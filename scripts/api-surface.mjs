@@ -2,7 +2,7 @@
 import fs from 'node:fs';
 import {fileURLToPath} from 'node:url';
 import * as API from '../src/index.js';
-const output={package:'avalondock-web',version:API.version,scope:'Implemented JavaScript exports only; not a completeness comparison with WPF AvalonDock.',exports:{}};
+const output={package:JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8')).name,version:API.version,scope:'Implemented JavaScript exports only; not a completeness comparison with WPF AvalonDock.',exports:{}};
 for(const name of Object.keys(API).sort()){
   const value=API[name];
   if(typeof value==='function' && /^class\s/.test(Function.prototype.toString.call(value))){
