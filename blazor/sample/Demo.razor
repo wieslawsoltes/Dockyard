@@ -1,0 +1,37 @@
+@page "/"
+@namespace Dockyard.Blazor.Sample
+@using Dockyard.Blazor
+@using Microsoft.AspNetCore.Components
+@using Microsoft.JSInterop
+<main>
+    <h1>Dockyard + Blazor</h1>
+    <p>A real docking workspace, running through the NuGet component wrapper.</p>
+    <button id="action" @onclick="AddDocument" disabled="@(!_ready)">Add document</button>
+    <button @onclick="ToggleTheme">Switch theme</button>
+    <button id="toggle" @onclick="Toggle">@(_show ? "Unmount" : "Mount")</button>
+    @if (_show) { <DockingManager @ref="_dock" Theme="@_theme" Ready="Initialize" Changed="OnChanged" /> }
+    <output id="status">@_status</output><output id="result">@_result</output>
+    <p>Native event notifications: @_events</p>
+</main>
+@code {
+    private DockingManager _dock = default!;
+    private bool _show = true, _ready;
+    private int _count, _events;
+    private string _theme = "light", _status = "Loading", _result = "";
+    private async Task Initialize(IJSObjectReference control)
+    {
+        await using var document = await _dock.AddDocumentAsync(new DockContent { ContentId = "welcome", Title = "Welcome", Content = "Drag tabs, split panes, float windows, and use auto-hide." });
+        await using var tool = await _dock.AddAnchorableAsync(new DockContent { ContentId = "explorer", Title = "Explorer", Content = "A tool pane created from C#." });
+        _ready = true; _status = "Ready";
+    }
+    private async Task AddDocument()
+    {
+        await using var document = await _dock.AddDocumentAsync(new DockContent { ContentId = $"document-{++_count}", Title = $"Document {_count}", Content = "Created by a Blazor event handler." });
+        var saved = await _dock.SaveLayoutAsync();
+        if (!saved.Contains($"document-{_count}")) throw new InvalidOperationException("The native layout did not contain the new document.");
+        _result = "Passed";
+    }
+    private void ToggleTheme() => _theme = _theme == "light" ? "dark" : "light";
+    private void OnChanged(BrowserEvent args) => _events++;
+    private void Toggle() { _show = !_show; _ready = false; _status = _show ? "Loading" : "Unmounted"; _result = ""; }
+}

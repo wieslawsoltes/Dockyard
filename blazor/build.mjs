@@ -1,0 +1,10 @@
+import { execFileSync } from 'node:child_process';
+import { cpSync, mkdirSync, existsSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+process.chdir(fileURLToPath(new URL('..', import.meta.url)));
+const out = 'blazor/src/wwwroot';
+mkdirSync(out, { recursive: true });
+execFileSync(process.platform === 'win32' ? 'npm.cmd' : 'npm', ['exec', '--yes', '--package=esbuild@0.28.2', '--', 'esbuild', 'blazor/src/entry.js', '--bundle', '--format=esm', '--platform=browser', '--target=es2022', `--outfile=${out}/library.js`, '--legal-comments=eof'], { stdio: 'inherit' });
+cpSync('src/avalondock.css', `${out}/styles.css`);
+mkdirSync(`${out}/licenses`, { recursive: true });
+for (const file of ['LICENSE', 'NOTICE', 'NOTICE.md', 'THIRD_PARTY_NOTICES.md']) if (existsSync(file)) cpSync(file, `${out}/licenses/${file}`);

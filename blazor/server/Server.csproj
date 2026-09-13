@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <PropertyGroup><TargetFramework Condition="'$(TargetFramework)' == ''">net8.0</TargetFramework><Nullable>enable</Nullable><ImplicitUsings>enable</ImplicitUsings><RootNamespace>Dockyard.Blazor.Server</RootNamespace></PropertyGroup>
+  <Import Project="../Version.props" />
+  <ItemGroup>
+    <ProjectReference Include="../src/Dockyard.Blazor.csproj" Condition="'$(UsePackage)' != 'true'" />
+    <PackageReference Include="Dockyard.Blazor" Version="$(Version)" Condition="'$(UsePackage)' == 'true'" />
+    <Content Include="../sample/Demo.razor" Link="Demo.razor" />
+  </ItemGroup>
+</Project>

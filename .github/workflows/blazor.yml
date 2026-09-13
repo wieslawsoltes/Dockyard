@@ -1,0 +1,117 @@
+name: Blazor
+on:
+  pull_request:
+  push:
+    branches: [main]
+    paths: ['blazor/**', 'src/**', 'packages/**', 'dist/**', 'package*.json', '.github/workflows/blazor.yml']
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: Publish the checked-in Blazor version from main
+        type: boolean
+        default: false
+permissions:
+  contents: read
+concurrency:
+  group: blazor-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        framework: [net8.0, net10.0]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: |
+            8.0.x
+            10.0.x
+      - run: npm ci
+      - run: npm run build
+      - name: Bundle all browser exports and run interop contracts
+        run: |
+          node blazor/build.mjs
+          node --test blazor/tests/interop.test.mjs
+      - name: Pack the multi-target Razor class library
+        run: dotnet pack blazor/src/Dockyard.Blazor.csproj -c Release -o artifacts/nuget
+      - name: Inspect the actual NuGet package
+        run: python3 blazor/tests/verify_package.py artifacts/nuget
+      - name: Compile and exercise the packaged managed API
+        run: |
+          dotnet restore blazor/tests/Managed/Managed.csproj -p:TargetFramework=${{ matrix.framework }} -p:UsePackage=true --source "$GITHUB_WORKSPACE/artifacts/nuget" --source https://api.nuget.org/v3/index.json
+          dotnet run --project blazor/tests/Managed/Managed.csproj -c Release -p:TargetFramework=${{ matrix.framework }} -p:UsePackage=true --no-restore
+      - name: Publish WASM and Server consumers from the NuGet package
+        run: |
+          for sample in sample server; do
+            project=Sample
+            if [ "$sample" = server ]; then project=Server; fi
+            dotnet restore "blazor/$sample/$project.csproj" -p:TargetFramework=${{ matrix.framework }} -p:UsePackage=true --source "$GITHUB_WORKSPACE/artifacts/nuget" --source https://api.nuget.org/v3/index.json
+            dotnet publish "blazor/$sample/$project.csproj" -c Release -p:TargetFramework=${{ matrix.framework }} -p:UsePackage=true --no-restore -o "artifacts/$sample"
+          done
+      - name: Install browser test runner
+        run: |
+          python3 -m pip install playwright==1.55.0
+          python3 -m playwright install --with-deps chromium
+      - name: Browser qualification of both hosting models
+        run: python3 blazor/tests/smoke.py --wasm artifacts/sample --server artifacts/server/Server.dll --output artifacts/browser
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: blazor-${{ matrix.framework }}
+          path: artifacts
+          retention-days: 7
+  publish:
+    needs: validate
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.publish))
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - name: Determine whether this commit releases a new Blazor version
+        id: release
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          VERSION=$(python3 -c "import xml.etree.ElementTree as E; print(E.parse('blazor/Version.props').findtext('.//Version'))")
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          if [ "$EVENT_NAME" = workflow_dispatch ] || git diff --name-only HEAD^ HEAD -- blazor/Version.props | grep -q .; then
+            echo 'publish=true' >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/setup-dotnet@v4
+        if: steps.release.outputs.publish == 'true'
+        with:
+          dotnet-version: '10.0.x'
+      - uses: actions/download-artifact@v4
+        if: steps.release.outputs.publish == 'true'
+        with:
+          name: blazor-net10.0
+          path: artifacts
+      - name: Publish validated packages to NuGet.org
+        if: steps.release.outputs.publish == 'true'
+        env:
+          NUGET_API_KEY: ${{ secrets.NUGET_API_KEY || secrets.NUGET_TOKEN || secrets.NUGET_KEY }}
+        run: |
+          test -n "$NUGET_API_KEY" || { echo 'Set NUGET_API_KEY (or NUGET_TOKEN / NUGET_KEY) in repository Actions secrets.'; exit 1; }
+          dotnet nuget push 'artifacts/nuget/*.nupkg' --source https://api.nuget.org/v3/index.json --api-key "$NUGET_API_KEY" --skip-duplicate
+      - name: Publish the Blazor release and runnable sample
+        if: steps.release.outputs.publish == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          TAG="blazor-v$VERSION"
+          if gh release view "$TAG" >/dev/null 2>&1; then exit 0; fi
+          tar -czf artifacts/Dockyard.Blazor.Sample.tar.gz -C artifacts/sample wwwroot
+          gh release create "$TAG" artifacts/nuget/* artifacts/Dockyard.Blazor.Sample.tar.gz --target "$GITHUB_SHA" --title "Dockyard Blazor $VERSION" --notes-file blazor/RELEASE.md
