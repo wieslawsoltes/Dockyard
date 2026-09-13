@@ -1,3 +1,4 @@
+import './event-protocols.test.mjs';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Session, snapshot } from '../src/wwwroot/interop.js';

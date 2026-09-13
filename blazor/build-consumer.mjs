@@ -22,6 +22,7 @@ const copies = {
   'server/_Imports.razor': 'blazor/server/_Imports.razor',
   'tests/Managed/Program.cs': 'blazor/tests/Managed/Program.cs',
   'tests/interop.test.mjs': 'blazor/tests/interop.test.mjs',
+  'tests/event-protocols.test.mjs': 'blazor/tests/event-protocols.test.mjs',
   'tests/functions.mjs': 'blazor/tests/functions.mjs',
   'tests/smoke.py': 'blazor/tests/smoke.py',
   'tests/verify_package.py': 'blazor/tests/verify_package.py'
@@ -35,6 +36,7 @@ for (const path of ['sample/Sample.csproj', 'server/Server.csproj', 'tests/Manag
 if (!config.existingProject) {
   let text = source('src/Dockyard.Blazor.csproj').replace('<PackageLicenseExpression>MIT</PackageLicenseExpression>', `<PackageLicenseExpression>${config.license ?? 'MIT'}</PackageLicenseExpression>`);
   text = text.replace('<GenerateDocumentationFile>', '<EmbedAllSources>true</EmbedAllSources><GenerateDocumentationFile>');
+  text = text.replace('blazor;webassembly;components;docking', `blazor;webassembly;components;${name.toLowerCase()}`);
   write(project, text);
 }
 mkdirSync(resolve(root, out), { recursive: true });

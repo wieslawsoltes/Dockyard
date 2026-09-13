@@ -67,7 +67,6 @@ export function snapshot(value, seen = new WeakSet(), depth = 0, budget = { node
     }
   } else {
     result = {};
-    // Private native backing fields contain parent/manager/renderer/subscriber graphs, not event data.
     const keys = Object.keys(value).filter(key => !forbidden.has(key) && (!native || !key.startsWith('_')));
     if (native) for (const key of ['Id', 'id', 'ContentId', 'Title', 'Count', 'PropertyName']) if (!keys.includes(key) && key in value) keys.push(key);
     for (const key of keys) {
@@ -135,14 +134,22 @@ export class Session {
       target.addEventListener(name, handler); stop = () => target.removeEventListener(name, handler);
     } else {
       const signal = path ? member(target, path) : target;
-      if (typeof signal?.add === 'function' || typeof signal?.Add === 'function') {
-        const add = signal.add ?? signal.Add; const token = add.call(signal, send);
-        stop = typeof token === 'function' ? token : () => { if (token) disposeNative(token); else (signal.remove ?? signal.Remove)?.call(signal, send); };
-      } else if (typeof signal?.subscribe === 'function') {
+      // Prefer disposable subscription contracts. Some add() APIs return the listener, not an unsubscriber.
+      if (typeof signal?.subscribe === 'function') {
         const token = signal.subscribe(send, error => send({ error: snapshot(error) }), () => send({ completed: true }));
         stop = typeof token === 'function' ? token : () => disposeNative(token);
       } else if (typeof signal?.Subscribe === 'function') {
         const token = signal.Subscribe(send); stop = typeof token === 'function' ? token : () => disposeNative(token);
+      } else if (typeof signal?.add === 'function' || typeof signal?.Add === 'function') {
+        const add = signal.add ?? signal.Add, remove = signal.remove ?? signal.Remove;
+        const token = add.call(signal, send);
+        if (token === send) {
+          if (typeof remove !== 'function') throw new TypeError(`Event ${path} returned its listener but does not provide removal.`);
+          stop = () => remove.call(signal, send);
+        } else if (typeof token === 'function') stop = token;
+        else if (token) stop = () => disposeNative(token);
+        else if (typeof remove === 'function') stop = () => remove.call(signal, send);
+        else throw new TypeError(`Event ${path} does not provide a disposable subscription.`);
       } else throw new TypeError(`Not an event or observable: ${path}`);
     }
     const subscription = { target, dispose: () => { if (!active) return; active = false; try { stop(); } finally { this.subscriptions.delete(subscription); } } };

@@ -24,7 +24,7 @@ public class BrowserModule : IAsyncDisposable
     private readonly IJSRuntime _js;
     private readonly string _libraryUrl;
     private readonly object _sync = new();
-    private readonly List<BrowserSubscription> _subscriptions = new();
+    private readonly HashSet<BrowserSubscription> _subscriptions = new();
     private IJSObjectReference? _bridge;
     private Task<IJSObjectReference>? _initialization;
     private bool _disposed;
@@ -55,12 +55,13 @@ public class BrowserModule : IAsyncDisposable
     public async ValueTask<T> GetAsync<T>(IJSObjectReference? target, string property, CancellationToken cancellationToken = default) => await (await SessionAsync()).InvokeAsync<T>("get", cancellationToken, target, property);
     public async ValueTask SetAsync(IJSObjectReference target, string property, object? value, CancellationToken cancellationToken = default) => await (await SessionAsync()).InvokeVoidAsync("set", cancellationToken, target, property, value);
     public async ValueTask<IJSObjectReference> MountAsync(ElementReference host, object options) => await (await SessionAsync()).InvokeAsync<IJSObjectReference>("mount", host, options);
-    public async ValueTask UpdateAsync(IJSObjectReference target, object options) => await (await SessionAsync()).InvokeVoidAsync("update", target, options);
+    public async ValueTask UpdateAsync(IJSObjectReference target, object options) => await (await SessionAsync()).InvokeVoidAsync("update", cancellationToken: default, target, options);
     public async ValueTask ReleaseAsync(IJSObjectReference target)
     {
         try { await (await SessionAsync()).InvokeVoidAsync("release", target); }
         finally { await target.DisposeAsync(); }
     }
+    private void ForgetSubscription(BrowserSubscription subscription) { lock (_sync) _subscriptions.Remove(subscription); }
     public async ValueTask<BrowserSubscription> SubscribeAsync(IJSObjectReference target, string eventName, Func<JsonElement, Task> callback)
     {
         ArgumentNullException.ThrowIfNull(callback);
@@ -68,7 +69,7 @@ public class BrowserModule : IAsyncDisposable
         IJSObjectReference subscription;
         try { subscription = await (await SessionAsync()).InvokeAsync<IJSObjectReference>("subscribe", target, eventName, reference); }
         catch { reference.Dispose(); throw; }
-        var result = new BrowserSubscription(subscription, reference);
+        var result = new BrowserSubscription(subscription, reference, ForgetSubscription);
         lock (_sync) { if (!_disposed) { _subscriptions.Add(result); return result; } }
         await result.DisposeAsync();
         throw new ObjectDisposedException(GetType().Name);
@@ -98,20 +99,29 @@ public class BrowserModule : IAsyncDisposable
 /// <summary>Owns both the browser event listener and the .NET callback reference.</summary>
 public sealed class BrowserSubscription : IAsyncDisposable
 {
-    public sealed class Receiver(Func<JsonElement, Task> callback)
+    public sealed class Receiver
     {
-        [JSInvokable] public Task Dispatch(JsonElement value) => callback(value);
+        private Func<JsonElement, Task>? _callback;
+        public Receiver(Func<JsonElement, Task> callback) => _callback = callback;
+        [JSInvokable] public Task Dispatch(JsonElement value) => Volatile.Read(ref _callback)?.Invoke(value) ?? Task.CompletedTask;
+        internal void Stop() => Interlocked.Exchange(ref _callback, null);
     }
     private readonly IJSObjectReference _subscription;
     private readonly DotNetObjectReference<Receiver> _receiver;
+    private readonly Action<BrowserSubscription> _onDisposed;
     private int _disposed;
-    internal BrowserSubscription(IJSObjectReference subscription, DotNetObjectReference<Receiver> receiver) { _subscription = subscription; _receiver = receiver; }
+    internal BrowserSubscription(IJSObjectReference subscription, DotNetObjectReference<Receiver> receiver, Action<BrowserSubscription> onDisposed) { _subscription = subscription; _receiver = receiver; _onDisposed = onDisposed; }
     public async ValueTask DisposeAsync()
     {
         if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
+        _receiver.Value.Stop();
         try { await _subscription.InvokeVoidAsync("dispose"); }
         catch (JSDisconnectedException) { }
-        finally { _receiver.Dispose(); try { await _subscription.DisposeAsync(); } catch (JSDisconnectedException) { } }
+        finally
+        {
+            _onDisposed(this); _receiver.Dispose();
+            try { await _subscription.DisposeAsync(); } catch (JSDisconnectedException) { }
+        }
     }
 }
 
@@ -131,7 +141,10 @@ public abstract class BrowserComponent : ComponentBase, IAsyncDisposable
     public IJSObjectReference? Control { get; private set; }
     protected virtual string HostTag => "div";
     protected virtual IReadOnlyList<string> DefaultEvents => [];
+    protected virtual IReadOnlyList<string> RequiredEvents => [];
     protected virtual Dictionary<string, object?> BuildOptions() => Options is null ? new() : new(Options);
+    protected virtual Task OnBrowserEventAsync(BrowserEvent notification) => Changed.InvokeAsync(notification);
+    protected virtual Task OnBrowserReadyAsync(IJSObjectReference control) => Ready.InvokeAsync(control);
     private readonly SemaphoreSlim _gate = new(1, 1);
     private readonly List<BrowserSubscription> _events = new();
     private ElementReference _host;
@@ -156,22 +169,23 @@ public abstract class BrowserComponent : ComponentBase, IAsyncDisposable
             var options = BuildOptions();
             if (Control is null) { Control = await Module.MountAsync(_host, options); ready = true; }
             else if (_last is null || _revision != Revision || _last.Count != options.Count || options.Any(p => !_last.TryGetValue(p.Key, out var old) || !Equals(old, p.Value))) await Module.UpdateAsync(Control, options);
+            if (_disposed) return;
             _last = options; _revision = Revision;
-            var names = (Events ?? DefaultEvents).Distinct().ToArray();
+            var names = RequiredEvents.Concat(Events ?? DefaultEvents).Distinct().ToArray();
             if (!_eventNames.SequenceEqual(names))
             {
                 foreach (var subscription in _events) await subscription.DisposeAsync();
                 _events.Clear();
-                foreach (var name in names) _events.Add(await Module.SubscribeAsync(Control, name, data => _disposed ? Task.CompletedTask : base.InvokeAsync(() => Changed.InvokeAsync(new BrowserEvent(name, data)))));
+                foreach (var name in names) _events.Add(await Module.SubscribeAsync(Control, name, data => _disposed ? Task.CompletedTask : base.InvokeAsync(() => OnBrowserEventAsync(new BrowserEvent(name, data)))));
                 _eventNames = names;
             }
         }
         finally { _gate.Release(); }
-        if (ready && !_disposed) await Ready.InvokeAsync(Control!);
+        if (ready && !_disposed) await OnBrowserReadyAsync(Control!);
     }
     public ValueTask<T> InvokeAsync<T>(string method, params object?[] arguments) => Module is not null && Control is not null ? Module.CallAsync<T>(Control, method, arguments) : ValueTask.FromException<T>(new InvalidOperationException("Wait for Ready before accessing the control."));
     public ValueTask InvokeVoidAsync(string method, params object?[] arguments) => Module is not null && Control is not null ? Module.CallVoidAsync(Control, method, arguments) : ValueTask.FromException(new InvalidOperationException("Wait for Ready before accessing the control."));
-    public async ValueTask DisposeAsync()
+    public virtual async ValueTask DisposeAsync()
     {
         if (Interlocked.Exchange(ref _disposeStarted, 1) != 0) return;
         _disposed = true; await _gate.WaitAsync();
