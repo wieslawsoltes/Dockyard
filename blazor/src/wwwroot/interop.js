@@ -34,23 +34,48 @@ async function resolve(value) {
   const entries = await Promise.all(Object.entries(value).map(async ([k, v]) => [k, await resolve(v)]));
   return entries.some(([k, v]) => value[k] !== v) ? Object.fromEntries(entries) : value;
 }
-export function snapshot(value, seen = new WeakSet(), depth = 0) {
-  if (value == null || typeof value === 'string' || typeof value === 'boolean') return value ?? null;
-  if (typeof value === 'number') return Number.isFinite(value) ? value : null;
-  if (typeof value === 'bigint') return String(value);
+/** Bounded value snapshot, not a serializer for arbitrary live engine/model graphs. */
+export function snapshot(value, seen = new WeakSet(), depth = 0, budget = { nodes: 50000, chars: 1048576, native: new WeakSet() }) {
+  if (--budget.nodes < 0 || budget.chars <= 0) return { $truncated: true };
+  if (value == null || typeof value === 'boolean') return value ?? null;
+  if (typeof value === 'string' || typeof value === 'bigint') {
+    const text = String(value), result = text.slice(0, Math.max(0, budget.chars)); budget.chars -= result.length + 4; return result;
+  }
+  if (typeof value === 'number') { budget.chars -= 24; return Number.isFinite(value) ? value : null; }
   if (typeof value === 'function' || typeof value === 'symbol') return undefined;
   if (depth > 12 || seen.has(value)) return null;
-  if (value instanceof Error) return { name: value.name, message: value.message, stack: value.stack };
-  if (value instanceof Date) return value.toISOString();
+  if (value instanceof Error) return { name: value.name?.slice(0, 256), message: value.message?.slice(0, 8192), stack: value.stack?.slice(0, 8192) };
+  if (value instanceof Date) return Number.isNaN(value.getTime()) ? null : value.toISOString();
   if (typeof Node !== 'undefined' && value instanceof Node) return { nodeName: value.nodeName, id: value.id ?? null };
+  if (value instanceof DataView) value = new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
+  const sequence = Array.isArray(value) || value instanceof Set || ArrayBuffer.isView(value);
+  const native = !sequence && !(value instanceof Map) && Object.getPrototypeOf(value) !== Object.prototype && Object.getPrototypeOf(value) !== null;
+  if (native && budget.native.has(value)) {
+    const result = { $reference: true };
+    for (const key of ['Id', 'id', 'ContentId', 'Title']) { try { if (typeof value[key] === 'string') result[key] = value[key].slice(0, 256); } catch { } }
+    return result;
+  }
+  if (native) budget.native.add(value);
   seen.add(value);
+  const child = item => snapshot(item, seen, depth + 1, budget);
   let result;
-  if (value instanceof Map) result = [...value].map(([k, v]) => [snapshot(k, seen, depth + 1), snapshot(v, seen, depth + 1)]);
-  else if (Array.isArray(value) || value instanceof Set || ArrayBuffer.isView(value)) result = [...value].map(v => snapshot(v, seen, depth + 1));
-  else result = Object.fromEntries(Object.keys(value).filter(k => !forbidden.has(k)).flatMap(k => {
-    try { const v = snapshot(value[k], seen, depth + 1); return v === undefined ? [] : [[k, v]]; }
-    catch { return []; }
-  }));
+  if (value instanceof Map || sequence) {
+    result = [];
+    for (const item of value) {
+      if (budget.nodes <= 0 || budget.chars <= 0) { result.push({ $truncated: true }); break; }
+      result.push(value instanceof Map ? [child(item[0]), child(item[1])] : child(item));
+    }
+  } else {
+    result = {};
+    // Private native backing fields contain parent/manager/renderer/subscriber graphs, not event data.
+    const keys = Object.keys(value).filter(key => !forbidden.has(key) && (!native || !key.startsWith('_')));
+    if (native) for (const key of ['Id', 'id', 'ContentId', 'Title', 'Count', 'PropertyName']) if (!keys.includes(key) && key in value) keys.push(key);
+    for (const key of keys) {
+      if (budget.nodes <= 0 || budget.chars <= 0) { result.$truncated = true; break; }
+      budget.chars -= key.length + 4;
+      try { const item = child(value[key]); if (item !== undefined) result[key] = item; } catch { }
+    }
+  }
   seen.delete(value);
   return result;
 }
@@ -120,7 +145,7 @@ export class Session {
         const token = signal.Subscribe(send); stop = typeof token === 'function' ? token : () => disposeNative(token);
       } else throw new TypeError(`Not an event or observable: ${path}`);
     }
-    const subscription = { target, dispose: () => { if (!active) return; active = false; stop(); this.subscriptions.delete(subscription); } };
+    const subscription = { target, dispose: () => { if (!active) return; active = false; try { stop(); } finally { this.subscriptions.delete(subscription); } } };
     this.subscriptions.add(subscription); return subscription;
   }
   async release(value) {
