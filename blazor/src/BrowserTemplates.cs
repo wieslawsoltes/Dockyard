@@ -55,8 +55,8 @@ public sealed class BrowserTemplateRegistry : IDisposable
     }
 }
 
-/// <summary>Declares a real Razor template for a native DOM factory. Id is passed to BrowserFunction.RazorTemplate.</summary>
-public class BrowserTemplate<TItem> : ComponentBase, IDisposable
+/// <summary>Declares a typed Razor template for a native DOM factory. Use TItem explicitly in Razor.</summary>
+public sealed class BrowserTemplate<TItem> : ComponentBase, IDisposable
 {
     [Inject] private BrowserTemplateRegistry Registry { get; set; } = default!;
     [Parameter] public string Id { get; set; } = Guid.NewGuid().ToString("N");
@@ -73,9 +73,6 @@ public class BrowserTemplate<TItem> : ComponentBase, IDisposable
     protected override bool ShouldRender() => false;
     public void Dispose() { if (_registered is not null) Registry.Remove(_registered, this); _registered = null; }
 }
-
-/// <summary>Untyped JSON-context variant of BrowserTemplate.</summary>
-public sealed class BrowserTemplate : BrowserTemplate<JsonElement> { }
 
 /// <summary>A dynamic root owned by the native host element, not a reparented Blazor render subtree.</summary>
 public sealed class BrowserTemplateOutlet : ComponentBase, IAsyncDisposable
