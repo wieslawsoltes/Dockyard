@@ -25,9 +25,14 @@ const copies = {
   'tests/event-protocols.test.mjs': 'blazor/tests/event-protocols.test.mjs',
   'tests/functions.mjs': 'blazor/tests/functions.mjs',
   'tests/smoke.py': 'blazor/tests/smoke.py',
-  'tests/verify_package.py': 'blazor/tests/verify_package.py'
+  'tests/verify_package.py': 'blazor/tests/verify_package.py',
+  'tests/registry_test.py': 'blazor/tests/registry_test.py',
+  'nuget-registry.py': 'blazor/nuget-registry.py'
 };
-for (const [from, to] of Object.entries(copies)) write(to, source(from));
+for (const [from, to] of Object.entries(copies)) {
+  // The C# compiler treats .g.cs as generated: project Nullable alone is not sufficient.
+  write(to, (to.endsWith('.g.cs') ? '#nullable enable\n' : '') + source(from));
+}
 for (const path of ['sample/Sample.csproj', 'server/Server.csproj', 'tests/Managed/Managed.csproj']) {
   const destination = `blazor/${path}`;
   const reference = relative(dirname(destination), project).replaceAll('\\', '/');

@@ -36,6 +36,7 @@ concurrency:
 jobs:
   validate:
     runs-on: ubuntu-latest
+    timeout-minutes: 25
     permissions:
       contents: read
     strategy:
@@ -49,6 +50,7 @@ jobs:
         with:
           fetch-depth: 2
           submodules: recursive
+          persist-credentials: false
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
@@ -60,10 +62,21 @@ jobs:
             10.0.x
       - run: npm ci
       - run: npm run build
-      - name: Bundle all browser exports and run interop contracts
+      - name: Validate the native engine
+        run: npm test
+      - name: Bundle all browser exports and run every bridge contract
         run: |
           node blazor/build.mjs
-          node --test blazor/tests/interop.test.mjs
+          node --test blazor/tests/*.test.mjs
+          python3 -m unittest discover -s blazor/tests -p '*_test.py'
+      - name: Preserve exact reviewed source and publication verifier
+        run: |
+          mkdir -p artifacts
+          paths=(blazor .github/workflows README.md)
+          if [ -d dotnet ]; then paths+=(dotnet); fi
+          if [ -f global.json ]; then paths+=(global.json); fi
+          git archive --format=tar.gz --output=artifacts/Blazor.Source.tar.gz HEAD "${paths[@]}"
+          cp blazor/nuget-registry.py artifacts/nuget-registry.py
       - name: Pack the multi-target Razor class library
         run: dotnet pack "$PROJECT_PATH" -c Release -o artifacts/nuget
       - name: Inspect the actual NuGet package
@@ -96,18 +109,21 @@ jobs:
     needs: validate
     if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.publish))
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 2
+          persist-credentials: false
       - name: Determine whether this commit releases a new Blazor version
         id: release
         env:
           EVENT_NAME: ${{ github.event_name }}
         run: |
           VERSION=$(python3 -c "import xml.etree.ElementTree as E; print(E.parse('blazor/Version.props').findtext('.//Version'))")
+          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           if [ "$EVENT_NAME" = workflow_dispatch ] || git diff --name-only HEAD^ HEAD -- blazor/Version.props | grep -q .; then
             echo 'publish=true' >> "$GITHUB_OUTPUT"
@@ -121,14 +137,21 @@ jobs:
         with:
           name: blazor-net10.0
           path: artifacts
-      - name: Publish validated packages to NuGet.org
+      - name: Reject conflicting immutable NuGet versions
+        id: registry
         if: steps.release.outputs.publish == 'true'
+        run: python3 artifacts/nuget-registry.py check artifacts/nuget
+      - name: Publish validated packages to NuGet.org
+        if: steps.release.outputs.publish == 'true' && steps.registry.outputs.exists != 'true'
         env:
           NUGET_API_KEY: ${{ secrets.NUGET_API_KEY || secrets.NUGET_TOKEN || secrets.NUGET_KEY }}
         run: |
           test -n "$NUGET_API_KEY" || { echo 'Set NUGET_API_KEY (or NUGET_TOKEN / NUGET_KEY) in repository Actions secrets.'; exit 1; }
           dotnet nuget push 'artifacts/nuget/*.nupkg' --source https://api.nuget.org/v3/index.json --api-key "$NUGET_API_KEY" --skip-duplicate
-      - name: Publish the Blazor release and runnable sample
+      - name: Download and verify every public NuGet payload member
+        if: steps.release.outputs.publish == 'true'
+        run: python3 artifacts/nuget-registry.py verify artifacts/nuget
+      - name: Publish immutable Blazor release and runnable samples
         if: steps.release.outputs.publish == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
@@ -136,6 +159,19 @@ jobs:
           PACKAGE_NAME: ${{ inputs.package_name || 'Dockyard' }}
         run: |
           TAG="blazor-v$VERSION"
-          if gh release view "$TAG" >/dev/null 2>&1; then exit 0; fi
-          tar -czf "artifacts/$PACKAGE_NAME.Blazor.Sample.tar.gz" -C artifacts/sample wwwroot
-          gh release create "$TAG" artifacts/nuget/* "artifacts/$PACKAGE_NAME.Blazor.Sample.tar.gz" --target "$GITHUB_SHA" --title "$PACKAGE_NAME Blazor $VERSION" --notes-file blazor/RELEASE.md
+          if git ls-remote --exit-code --tags origin "refs/tags/$TAG" > /tmp/blazor-tag; then
+            git fetch --depth=1 origin "refs/tags/$TAG:refs/tags/$TAG"
+            test "$(git rev-parse "$TAG^{commit}")" = "$GITHUB_SHA" || { echo 'Release tag points to a different commit.'; exit 1; }
+          else
+            status=$?
+            test "$status" = 2 || exit "$status"
+          fi
+          mkdir -p artifacts/release
+          cp artifacts/nuget/* artifacts/release/
+          tar -czf "artifacts/release/$PACKAGE_NAME.Blazor.Sample.tar.gz" -C artifacts/sample wwwroot
+          tar -czf "artifacts/release/$PACKAGE_NAME.Blazor.Server.tar.gz" -C artifacts/server .
+          (cd artifacts/release && sha256sum *.nupkg *.snupkg *.tar.gz > SHA256SUMS)
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            gh release create "$TAG" artifacts/release/* --target "$GITHUB_SHA" --title "$PACKAGE_NAME Blazor $VERSION" --notes-file blazor/RELEASE.md
+          fi
+          echo "$PACKAGE_NAME.Blazor $VERSION: NuGet payload verified; release $TAG." >> "$GITHUB_STEP_SUMMARY"
