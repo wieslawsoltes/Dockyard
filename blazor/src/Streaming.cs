@@ -21,9 +21,11 @@ public partial class BrowserModule
     public ValueTask<T> InvokeJsonAsync<T>(string exportName, object?[]? arguments = null, CancellationToken cancellationToken = default) => ReadJsonAsync<T>("invoke", null, exportName, arguments, cancellationToken);
     public ValueTask<T> GetJsonAsync<T>(IJSObjectReference? target, string property, CancellationToken cancellationToken = default) => ReadJsonAsync<T>("get", target, property, null, cancellationToken);
     public ValueTask<JsonElement[]> CallBatchAsync(IReadOnlyList<BrowserCall> calls, CancellationToken cancellationToken = default) => ReadJsonAsync<JsonElement[]>("batch", null, "", [calls], cancellationToken);
-    public async ValueTask<byte[]> CallBytesAsync(IJSObjectReference target, string method, object?[]? arguments = null, CancellationToken cancellationToken = default)
+    public ValueTask<byte[]> CallBytesAsync(IJSObjectReference target, string method, object?[]? arguments = null, CancellationToken cancellationToken = default) => ReadBytesAsync("call", target, method, arguments, cancellationToken);
+    public ValueTask<byte[]> InvokeBytesAsync(string exportName, object?[]? arguments = null, CancellationToken cancellationToken = default) => ReadBytesAsync("invoke", null, exportName, arguments, cancellationToken);
+    private async ValueTask<byte[]> ReadBytesAsync(string operation, IJSObjectReference? target, string method, object?[]? arguments, CancellationToken cancellationToken)
     {
-        await using var reference = await (await SessionAsync()).InvokeAsync<IJSStreamReference>("transfer", cancellationToken, "call", target, method, arguments ?? [], "bytes", MaximumTransferBytes);
+        await using var reference = await (await SessionAsync()).InvokeAsync<IJSStreamReference>("transfer", cancellationToken, operation, target, method, arguments ?? [], "bytes", MaximumTransferBytes);
         await using var input = await reference.OpenReadStreamAsync(MaximumTransferBytes, cancellationToken);
         using var output = new MemoryStream();
         await input.CopyToAsync(output, cancellationToken);

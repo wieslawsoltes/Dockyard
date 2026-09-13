@@ -1,12 +1,13 @@
 @namespace Dockyard.Blazor.Sample
 @using global::Dockyard.Blazor
+@using System.Text.Json
 @using Microsoft.AspNetCore.Components
 @using Microsoft.JSInterop
 @implements IAsyncDisposable
 @inject IJSRuntime JS
 <section aria-label="Blazor integration verification">
     <h2>Razor templates and streamed interop</h2>
-    <BrowserTemplate Id="@_templateId" Context="context">
+    <BrowserTemplate TItem="JsonElement" Id="@_templateId" Context="context">
         <p>@context.GetProperty("label").GetString()</p>
         <button id="template-counter" @onclick="Increment">Razor count: @_count</button>
         <input id="template-input" aria-label="Template input" @bind="_text" />
