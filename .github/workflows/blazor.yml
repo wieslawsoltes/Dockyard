@@ -10,6 +10,24 @@ on:
         description: Publish the checked-in Blazor version from main
         type: boolean
         default: false
+  workflow_call:
+    inputs:
+      project:
+        type: string
+        default: blazor/src/Dockyard.Blazor.csproj
+      package_name:
+        type: string
+        default: Dockyard
+      publish:
+        type: boolean
+        default: false
+    secrets:
+      NUGET_API_KEY:
+        required: false
+      NUGET_TOKEN:
+        required: false
+      NUGET_KEY:
+        required: false
 permissions:
   contents: read
 concurrency:
@@ -18,14 +36,19 @@ concurrency:
 jobs:
   validate:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     strategy:
       fail-fast: false
       matrix:
         framework: [net8.0, net10.0]
+    env:
+      PROJECT_PATH: ${{ inputs.project || 'blazor/src/Dockyard.Blazor.csproj' }}
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 2
+          submodules: recursive
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
@@ -42,7 +65,7 @@ jobs:
           node blazor/build.mjs
           node --test blazor/tests/interop.test.mjs
       - name: Pack the multi-target Razor class library
-        run: dotnet pack blazor/src/Dockyard.Blazor.csproj -c Release -o artifacts/nuget
+        run: dotnet pack "$PROJECT_PATH" -c Release -o artifacts/nuget
       - name: Inspect the actual NuGet package
         run: python3 blazor/tests/verify_package.py artifacts/nuget
       - name: Compile and exercise the packaged managed API
@@ -110,8 +133,9 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ steps.release.outputs.version }}
+          PACKAGE_NAME: ${{ inputs.package_name || 'Dockyard' }}
         run: |
           TAG="blazor-v$VERSION"
           if gh release view "$TAG" >/dev/null 2>&1; then exit 0; fi
-          tar -czf artifacts/Dockyard.Blazor.Sample.tar.gz -C artifacts/sample wwwroot
-          gh release create "$TAG" artifacts/nuget/* artifacts/Dockyard.Blazor.Sample.tar.gz --target "$GITHUB_SHA" --title "Dockyard Blazor $VERSION" --notes-file blazor/RELEASE.md
+          tar -czf "artifacts/$PACKAGE_NAME.Blazor.Sample.tar.gz" -C artifacts/sample wwwroot
+          gh release create "$TAG" artifacts/nuget/* "artifacts/$PACKAGE_NAME.Blazor.Sample.tar.gz" --target "$GITHUB_SHA" --title "$PACKAGE_NAME Blazor $VERSION" --notes-file blazor/RELEASE.md
