@@ -5,5 +5,7 @@
     <ProjectReference Include="../src/Dockyard.Blazor.csproj" Condition="'$(UsePackage)' != 'true'" />
     <PackageReference Include="Dockyard.Blazor" Version="$(Version)" Condition="'$(UsePackage)' == 'true'" />
     <Content Include="../sample/Demo.razor" Link="Demo.razor" />
+    <Content Include="../sample/InteropProbe.razor" Link="InteropProbe.razor" />
+    <Content Include="../sample/wwwroot/probe.js" Link="wwwroot/probe.js" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

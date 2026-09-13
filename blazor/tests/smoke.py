@@ -43,6 +43,13 @@ try:
             try:
                 page.goto(url, wait_until='domcontentloaded')
                 expect(page.locator('#status')).to_have_text('Ready', timeout=60000)
+                expect(page.locator('#interop-status')).to_have_text('Passed', timeout=60000)
+                expect(page.locator('#template-counter')).to_be_visible(timeout=30000)
+                page.locator('#template-counter').click()
+                expect(page.locator('#template-counter')).to_have_text('Razor count: 1')
+                page.locator('#template-input').fill('Razor two-way binding')
+                page.locator('#template-input').press('Tab')
+                expect(page.locator('#template-value')).to_have_text('Razor two-way binding')
                 page.locator('#action').click()
                 expect(page.locator('#result')).to_have_text('Passed', timeout=30000)
                 page.screenshot(path=str(out / f'{name}.png'), full_page=True)
@@ -55,7 +62,7 @@ try:
                 expect(page.locator('#result')).to_have_text('Passed', timeout=30000)
                 assert not errors, f'{name} browser errors: {errors}'
                 assert not external, f'{name} unexpectedly required external assets: {external}'
-                print(f'{name}: packaged assets, native action, callback, unmount and remount passed', flush=True)
+                print(f'{name}: packaged assets, native action, callback, streamed JSON/binary, Razor template, unmount and remount passed', flush=True)
             except Exception:
                 page.screenshot(path=str(out / f'{name}-failure.png'), full_page=True)
                 (out / f'{name}-failure.html').write_text(page.content())

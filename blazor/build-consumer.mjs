@@ -12,6 +12,13 @@ const project = config.project ?? `blazor/src/${name}.Blazor.csproj`;
 function write(path, text) { mkdirSync(dirname(resolve(root, path)), { recursive: true }); writeFileSync(resolve(root, path), text); }
 function source(path) { return readFileSync(resolve(common, path), 'utf8').replaceAll('Dockyard', name); }
 const copies = {
+  'src/BrowserTemplates.cs': 'blazor/src/BrowserTemplates.g.cs',
+  'src/Streaming.cs': 'blazor/src/Streaming.g.cs',
+  'src/wwwroot/templates.js': `${out}/templates.js`,
+  'src/wwwroot/transport.js': `${out}/transport.js`,
+  'sample/InteropProbe.razor': 'blazor/sample/InteropProbe.razor',
+  'sample/wwwroot/probe.js': 'blazor/sample/wwwroot/probe.js',
+  'tests/transport.test.mjs': 'blazor/tests/transport.test.mjs',
   'src/WebInterop.cs': 'blazor/src/WebInterop.g.cs',
   'src/wwwroot/interop.js': `${out}/interop.js`,
   'sample/Program.cs': 'blazor/sample/Program.cs',
@@ -36,7 +43,7 @@ for (const [from, to] of Object.entries(copies)) {
 for (const path of ['sample/Sample.csproj', 'server/Server.csproj', 'tests/Managed/Managed.csproj']) {
   const destination = `blazor/${path}`;
   const reference = relative(dirname(destination), project).replaceAll('\\', '/');
-  write(destination, source(path).replace(/Include="[^"]+\/src\/[^"]+\.csproj"/g, `Include="${reference}"`));
+  write(destination, source(path).replace(/Include="[^"]+\/src\/[^" ]+\.csproj"/g, `Include="${reference}"`));
 }
 if (!config.existingProject) {
   let text = source('src/Dockyard.Blazor.csproj').replace('<PackageLicenseExpression>MIT</PackageLicenseExpression>', `<PackageLicenseExpression>${config.license ?? 'MIT'}</PackageLicenseExpression>`);

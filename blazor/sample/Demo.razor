@@ -12,6 +12,7 @@
     @if (_show) { <DockingManager @ref="_dock" Theme="@_theme" Ready="Initialize" Changed="OnChanged" /> }
     <output id="status">@_status</output><output id="result">@_result</output>
     <p>Native event notifications: @_events</p>
+    <InteropProbe />
 </main>
 @code {
     private DockingManager _dock = default!;

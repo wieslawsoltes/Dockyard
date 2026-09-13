@@ -1,6 +1,8 @@
-using Dockyard.Blazor.Server;
+using global::Dockyard.Blazor;
+using global::Dockyard.Blazor.Server;
 var builder = WebApplication.CreateBuilder(args);
-builder.Services.AddRazorComponents().AddInteractiveServerComponents();
+builder.Services.AddDockyardBlazor();
+builder.Services.AddRazorComponents().AddInteractiveServerComponents(options => options.RootComponents.RegisterDockyardBlazor());
 var app = builder.Build();
 app.UsePathBase("/probe");
 app.UseStaticFiles();

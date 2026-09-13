@@ -1,3 +1,4 @@
+import { stream, jsonText, deliver } from './transport.js';
 const forbidden = new Set(['__proto__', 'prototype', 'constructor']);
 function locationOf(target, path) {
   const parts = String(path).split('.');
@@ -15,6 +16,7 @@ function baseUrl(url) { return new URL(url, globalThis.document?.baseURI ?? impo
 async function resolve(value) {
   if (!value || typeof value !== 'object') return value;
   if (Object.hasOwn(value, '$fn')) {
+    if (value.$fn === 'razor') return (await import('./templates.js')).createFactory(value);
     if (value.$fn === 'property') return item => member(item, value.path);
     if (value.$fn === 'constant') return () => value.value;
     if (value.$fn === 'setter') return (item, next) => { const [owner, key] = locationOf(item, value.path); owner[key] = next; };
@@ -79,7 +81,7 @@ export function snapshot(value, seen = new WeakSet(), depth = 0, budget = { node
   return result;
 }
 function disposeNative(value) {
-  for (const name of ['Dispose', 'dispose', 'unsubscribe', 'delete']) {
+  for (const name of ['DisposeAsync', 'Dispose', 'dispose', 'unsubscribe', 'delete']) {
     if (typeof value?.[name] === 'function') return value[name]();
   }
 }
@@ -122,11 +124,28 @@ export class Session {
     return result;
   }
   async update(target, options) { this.check(); const values = await resolve(options ?? {}); this.check(); if (this.entry.update) await this.entry.update(target, values); else for (const [k, v] of Object.entries(values)) await this.set(target, k, v); }
-  async subscribe(target, path, receiver) {
+  async transfer(operation, target, path, args = [], format = 'json', limit) {
+    this.check();
+    let result;
+    if (operation === 'call') result = await this.call(target, path, args);
+    else if (operation === 'invoke') result = await this.invoke(path, args);
+    else if (operation === 'get') result = this.get(target, path);
+    else if (operation === 'batch') {
+      result = [];
+      for (const call of args[0]) result.push(await this.call(call.target, call.method, call.arguments ?? []));
+    } else throw new TypeError(`Unknown transfer operation: ${operation}`);
+    this.check(); return stream(result, format, limit);
+  }
+  subscribeJson(target, path, receiver) { return this.subscribe(target, path, receiver, true); }
+  async subscribe(target, path, receiver, json = false) {
     this.check(); let active = true, pending = Promise.resolve();
     const send = (...args) => {
-      const value = snapshot(args.length > 1 ? args[args.length - 1] : args[0]);
-      pending = pending.then(() => active && !this.disposed ? receiver.invokeMethodAsync('Dispatch', value) : undefined).catch(error => console.error('Blazor event callback failed', error));
+      if (!active || this.disposed) return;
+      const item = args.length > 1 ? args[args.length - 1] : args[0];
+      let text;
+      try { text = jsonText(json ? item : snapshot(item)); }
+      catch (error) { text = jsonText({ error: snapshot(error) }); }
+      pending = pending.then(() => active && !this.disposed ? deliver(receiver, text) : undefined).catch(error => { if (active && !this.disposed) console.error('Blazor event callback failed', error); });
     };
     let stop;
     if (path.startsWith('dom:')) {

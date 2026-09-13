@@ -8,6 +8,7 @@ namespace Dockyard.Blazor;
 /// <summary>Browser-side callbacks. Module callbacks retain synchronous JavaScript semantics without eval.</summary>
 public static class BrowserFunction
 {
+    public static object RazorTemplate(string id, string? contextProperty = null, string[]? fields = null) => new Dictionary<string, object?> { ["$fn"] = "razor", ["id"] = id, ["component"] = "Dockyard.Blazor.Template", ["contextProperty"] = contextProperty, ["fields"] = fields };
     public static object Property(string path) => new Dictionary<string, object?> { ["$fn"] = "property", ["path"] = path };
     public static object Setter(string path) => new Dictionary<string, object?> { ["$fn"] = "setter", ["path"] = path };
     public static object Constant(object? value) => new Dictionary<string, object?> { ["$fn"] = "constant", ["value"] = value };
@@ -19,7 +20,7 @@ public static class BrowserFunction
 public sealed record BrowserEvent(string Name, JsonElement Data);
 
 /// <summary>A per-owner browser session; do not register it as a singleton in Blazor Server.</summary>
-public class BrowserModule : IAsyncDisposable
+public partial class BrowserModule : IAsyncDisposable
 {
     private readonly IJSRuntime _js;
     private readonly string _libraryUrl;
@@ -62,12 +63,13 @@ public class BrowserModule : IAsyncDisposable
         finally { await target.DisposeAsync(); }
     }
     private void ForgetSubscription(BrowserSubscription subscription) { lock (_sync) _subscriptions.Remove(subscription); }
-    public async ValueTask<BrowserSubscription> SubscribeAsync(IJSObjectReference target, string eventName, Func<JsonElement, Task> callback)
+    public ValueTask<BrowserSubscription> SubscribeAsync(IJSObjectReference target, string eventName, Func<JsonElement, Task> callback) => SubscribeCoreAsync(target, eventName, callback, false);
+    private async ValueTask<BrowserSubscription> SubscribeCoreAsync(IJSObjectReference target, string eventName, Func<JsonElement, Task> callback, bool json)
     {
         ArgumentNullException.ThrowIfNull(callback);
         var reference = DotNetObjectReference.Create(new BrowserSubscription.Receiver(callback));
         IJSObjectReference subscription;
-        try { subscription = await (await SessionAsync()).InvokeAsync<IJSObjectReference>("subscribe", target, eventName, reference); }
+        try { subscription = await (await SessionAsync()).InvokeAsync<IJSObjectReference>(json ? "subscribeJson" : "subscribe", target, eventName, reference); }
         catch { reference.Dispose(); throw; }
         var result = new BrowserSubscription(subscription, reference, ForgetSubscription);
         lock (_sync) { if (!_disposed) { _subscriptions.Add(result); return result; } }
@@ -90,6 +92,7 @@ public class BrowserModule : IAsyncDisposable
                 finally { try { await session.DisposeAsync(); } catch (JSDisconnectedException) { } }
             }
         }
+        catch (JSDisconnectedException) { }
         catch (Exception error) { errors.Add(error); }
         finally { if (_bridge is not null) { try { await _bridge.DisposeAsync(); } catch (JSDisconnectedException) { } } }
         if (errors.Count > 0) throw new AggregateException(errors);
@@ -104,6 +107,15 @@ public sealed class BrowserSubscription : IAsyncDisposable
         private Func<JsonElement, Task>? _callback;
         public Receiver(Func<JsonElement, Task> callback) => _callback = callback;
         [JSInvokable] public Task Dispatch(JsonElement value) => Volatile.Read(ref _callback)?.Invoke(value) ?? Task.CompletedTask;
+        [JSInvokable] public async Task DispatchStream(IJSStreamReference reference)
+        {
+            await using (reference)
+            {
+                await using var input = await reference.OpenReadStreamAsync(64 * 1024 * 1024);
+                using var document = await JsonDocument.ParseAsync(input);
+                await Dispatch(document.RootElement.Clone());
+            }
+        }
         internal void Stop() => Interlocked.Exchange(ref _callback, null);
     }
     private readonly IJSObjectReference _subscription;
@@ -142,6 +154,7 @@ public abstract class BrowserComponent : ComponentBase, IAsyncDisposable
     protected virtual string HostTag => "div";
     protected virtual IReadOnlyList<string> DefaultEvents => [];
     protected virtual IReadOnlyList<string> RequiredEvents => [];
+    protected virtual bool IsJsonEvent(string name) => false;
     protected virtual Dictionary<string, object?> BuildOptions() => Options is null ? new() : new(Options);
     protected virtual Task OnBrowserEventAsync(BrowserEvent notification) => Changed.InvokeAsync(notification);
     protected virtual Task OnBrowserReadyAsync(IJSObjectReference control) => Ready.InvokeAsync(control);
@@ -176,7 +189,11 @@ public abstract class BrowserComponent : ComponentBase, IAsyncDisposable
             {
                 foreach (var subscription in _events) await subscription.DisposeAsync();
                 _events.Clear();
-                foreach (var name in names) _events.Add(await Module.SubscribeAsync(Control, name, data => _disposed ? Task.CompletedTask : base.InvokeAsync(() => OnBrowserEventAsync(new BrowserEvent(name, data)))));
+                foreach (var name in names)
+                {
+                    Task Handle(JsonElement data) => _disposed ? Task.CompletedTask : base.InvokeAsync(() => OnBrowserEventAsync(new BrowserEvent(name, data)));
+                    _events.Add(IsJsonEvent(name) ? await Module.SubscribeJsonAsync<JsonElement>(Control, name, Handle) : await Module.SubscribeAsync(Control, name, Handle));
+                }
                 _eventNames = names;
             }
         }
@@ -184,6 +201,8 @@ public abstract class BrowserComponent : ComponentBase, IAsyncDisposable
         if (ready && !_disposed) await OnBrowserReadyAsync(Control!);
     }
     public ValueTask<T> InvokeAsync<T>(string method, params object?[] arguments) => Module is not null && Control is not null ? Module.CallAsync<T>(Control, method, arguments) : ValueTask.FromException<T>(new InvalidOperationException("Wait for Ready before accessing the control."));
+    public ValueTask<T> InvokeJsonAsync<T>(string method, params object?[] arguments) => Module is not null && Control is not null ? Module.CallJsonAsync<T>(Control, method, arguments) : ValueTask.FromException<T>(new InvalidOperationException("Wait for Ready before accessing the control."));
+    public ValueTask<byte[]> InvokeBytesAsync(string method, params object?[] arguments) => Module is not null && Control is not null ? Module.CallBytesAsync(Control, method, arguments) : ValueTask.FromException<byte[]>(new InvalidOperationException("Wait for Ready before accessing the control."));
     public ValueTask InvokeVoidAsync(string method, params object?[] arguments) => Module is not null && Control is not null ? Module.CallVoidAsync(Control, method, arguments) : ValueTask.FromException(new InvalidOperationException("Wait for Ready before accessing the control."));
     public virtual async ValueTask DisposeAsync()
     {
