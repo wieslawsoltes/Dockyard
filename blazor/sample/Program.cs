@@ -1,6 +1,6 @@
-using global::Dockyard.Blazor;
+using Dockyard.Blazor;
 using Microsoft.AspNetCore.Components.WebAssembly.Hosting;
-using global::Dockyard.Blazor.Sample;
+using DockyardBlazorSample;
 var builder = WebAssemblyHostBuilder.CreateDefault(args);
 builder.Services.AddDockyardBlazor();
 builder.RootComponents.RegisterDockyardBlazor();
