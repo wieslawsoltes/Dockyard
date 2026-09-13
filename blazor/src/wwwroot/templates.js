@@ -24,7 +24,6 @@ function register() {
   class RazorTemplateElement extends HTMLElement {
     constructor() {
       super(); this.contextId = `template-${++nextId}`; this.version = 0; this.pending = Promise.resolve();
-      // Native shadow roots don't let ordinary change/submit events reach the Blazor document event delegator.
       for (const type of ['change', 'submit', 'reset']) this.addEventListener(type, event => {
         if (event.composed || !(this.getRootNode() instanceof ShadowRoot)) return;
         const forwarded = new Event(type, { bubbles: event.bubbles, cancelable: event.cancelable, composed: true });
@@ -64,13 +63,14 @@ function register() {
   }
   customElements.define(tag, RazorTemplateElement);
 }
-/** Synchronous native factory; Blazor owns each factory result as a separate dynamic root. */
+/** Synchronous native factory; Blazor owns each result as an independent dynamic root. */
 export function createFactory(descriptor) {
   if (typeof descriptor.id !== 'string' || !descriptor.id.trim() || descriptor.id.length > 200) throw new TypeError('A valid Razor template ID is required.');
   register();
   const factory = value => {
     const host = document.createElement(tag); host.style.display = 'block'; host.configure(descriptor, value); return host;
   };
+  factory.templateKey = JSON.stringify(descriptor);
   factory.update = (host, value) => host.update(value);
   factory.dispose = host => { host.remove(); host.schedule(); };
   return factory;

@@ -10,6 +10,7 @@ public sealed class DockContent
     [JsonPropertyName("Content")] public object? Content { get; set; }
     [JsonPropertyName("CanClose")] public bool CanClose { get; set; } = true;
     [JsonPropertyName("CanFloat")] public bool CanFloat { get; set; } = true;
+    [JsonExtensionData] public Dictionary<string, object?>? AdditionalProperties { get; set; }
 }
 /// <summary>Docking, floating, auto-hide and layout persistence backed by the real Dockyard manager.</summary>
 public sealed class DockingManager : BrowserComponent
@@ -27,7 +28,7 @@ public sealed class DockingManager : BrowserComponent
     }
     public ValueTask<IJSObjectReference> AddDocumentAsync(DockContent content) => InvokeAsync<IJSObjectReference>("AddDocument", content);
     public ValueTask<IJSObjectReference> AddAnchorableAsync(DockContent content, string side = "Left") => InvokeAsync<IJSObjectReference>("AddAnchorable", content, side);
-    public ValueTask<string> SaveLayoutAsync(string format = "json") => InvokeAsync<string>("SaveLayout", format);
+    public ValueTask<string> SaveLayoutAsync(string format = "json") => InvokeJsonAsync<string>("SaveLayout", format);
     public ValueTask LoadLayoutAsync(string layout, string format = "json") => InvokeVoidAsync("LoadLayout", layout, format);
     public ValueTask<bool> UndoAsync() => InvokeAsync<bool>("Undo");
     public ValueTask<bool> RedoAsync() => InvokeAsync<bool>("Redo");

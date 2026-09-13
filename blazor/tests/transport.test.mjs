@@ -4,20 +4,22 @@ import { Session } from '../src/wwwroot/interop.js';
 import { stream, deliver, jsonText } from '../src/wwwroot/transport.js';
 let released = 0;
 globalThis.DotNet = { createJSStreamReference: blob => ({ blob }), disposeJSObjectReference: () => released++ };
-const read = async reference => JSON.parse(await reference.blob.text());
+const read = async reference => JSON.parse(await reference.text());
 test('JSON streams preserve all Unicode and large values without snapshots', async () => {
   const value = { name: 'Zażółć 🙂'.repeat(100000), items: Array.from({ length: 10000 }, (_, i) => ({ i })) };
+  assert.ok(stream(value) instanceof Blob, 'Interop return values must be blobs, not pre-wrapped stream references.');
   assert.deepEqual(await read(stream(value)), value);
   assert.throws(() => stream('🙂', 'json', 3), /limit/);
+  assert.throws(() => stream([], 'unknown'), /format/);
 });
 test('binary views stream only their slice and explicit limits fail', async () => {
   const data = Uint8Array.of(1, 2, 3, 4);
-  assert.deepEqual([...new Uint8Array(await stream(data.subarray(1, 3), 'bytes').blob.arrayBuffer())], [2, 3]);
+  assert.deepEqual([...new Uint8Array(await stream(data.subarray(1, 3), 'bytes').arrayBuffer())], [2, 3]);
   assert.throws(() => stream(data, 'bytes', 3), /limit/);
 });
 test('notifications choose small messages or owned streams; failed dispatch releases its stream', async () => {
   const received = [];
-  const receiver = { invokeMethodAsync: async (method, payload) => received.push([method, method === 'DispatchStream' ? await read(payload) : payload]) };
+  const receiver = { invokeMethodAsync: async (method, payload) => received.push([method, method === 'DispatchStream' ? await read(payload.blob) : payload]) };
   await deliver(receiver, jsonText(3)); await deliver(receiver, jsonText('x'.repeat(50000)));
   assert.equal(received[0][0], 'Dispatch'); assert.equal(received[1][0], 'DispatchStream'); assert.equal(received[1][1].length, 50000);
   await assert.rejects(deliver({ invokeMethodAsync: () => Promise.reject(Error('closed')) }, jsonText('x'.repeat(5000))), /closed/);
