@@ -24,11 +24,21 @@ function register() {
   class RazorTemplateElement extends HTMLElement {
     constructor() {
       super(); this.contextId = `template-${++nextId}`; this.version = 0; this.pending = Promise.resolve();
-      for (const type of ['change', 'submit', 'reset']) this.addEventListener(type, event => {
-        if (event.composed || !(this.getRootNode() instanceof ShadowRoot)) return;
+      // Blazor finds handlers using composedPath, but builds ChangeEventArgs from target.
+      // Preserve the originating input instead of the shadow host exposed at Document.
+      for (const type of ['input', 'change', 'submit', 'reset']) this.addEventListener(type, event => {
+        if (!(this.getRootNode() instanceof ShadowRoot)) return;
+        const target = event.composedPath()[0];
+        if (!target || target === this) return;
+        if (event.composed) {
+          Object.defineProperty(event, 'target', { value: target, configurable: true });
+          return;
+        }
         const forwarded = new Event(type, { bubbles: event.bubbles, cancelable: event.cancelable, composed: true });
+        Object.defineProperty(forwarded, 'target', { value: target, configurable: true });
+        if ('submitter' in event) Object.defineProperty(forwarded, 'submitter', { value: event.submitter });
         event.stopPropagation();
-        if (!event.target.dispatchEvent(forwarded)) event.preventDefault();
+        if (!target.dispatchEvent(forwarded)) event.preventDefault();
       }, true);
     }
     configure(descriptor, value) { this.descriptor = descriptor; this.update(value); }
