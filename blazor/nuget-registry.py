@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import io
+import math
 import os
 import re
 import time
@@ -50,12 +51,12 @@ def compare(expected: bytes, actual: bytes) -> None:
         raise ValueError('Immutable NuGet version has different payloads: ' + ', '.join(changed[:20]))
 
 
-def download(identity: str, version: str) -> bytes | None:
+def download(identity: str, version: str, *, timeout: float = 60) -> bytes | None:
     identity, version = identity.lower(), version.lower()
     url = f'https://api.nuget.org/v3-flatcontainer/{identity}/{version}/{identity}.{version}.nupkg'
     request = urllib.request.Request(url, headers={'User-Agent': 'BlazorPackageValidation/1.0'})
     try:
-        with urllib.request.urlopen(request, timeout=60) as response:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
             return response.read()
     except urllib.error.HTTPError as error:
         if error.code == 404:
@@ -63,26 +64,87 @@ def download(identity: str, version: str) -> bytes | None:
         raise
 
 
+def positive_seconds(value: str) -> float:
+    try:
+        seconds = float(value)
+    except ValueError as error:
+        raise argparse.ArgumentTypeError('Timeout must be a number of seconds.') from error
+    if not math.isfinite(seconds) or not 1 <= seconds <= 3600:
+        raise argparse.ArgumentTypeError('Timeout must be between 1 and 3600 seconds.')
+    return seconds
+
+
+def wait_for_package(identity: str, version: str, *, timeout_seconds: float = 720,
+                     interval_seconds: float = 10, fetch=None, clock=None, sleep=None) -> bytes:
+    """Wait for publication visibility, never converting permanent errors into absence.
+
+    Injected I/O and clock functions let tests exercise long publication delays instantly.
+    A downloaded conflicting payload is rejected by compare(), outside this retry loop.
+    """
+    if not math.isfinite(timeout_seconds) or timeout_seconds <= 0:
+        raise ValueError('A finite positive timeout is required.')
+    if not math.isfinite(interval_seconds) or interval_seconds <= 0:
+        raise ValueError('A finite positive retry interval is required.')
+    fetch = fetch or download
+    clock = clock or time.monotonic
+    sleep = sleep or time.sleep
+    started = clock()
+    deadline = started + timeout_seconds
+    attempt = 0
+    last = 'HTTP 404: package is not yet downloadable'
+    while (remaining := deadline - clock()) > 0:
+        attempt += 1
+        retry_delay = interval_seconds
+        try:
+            actual = fetch(identity, version, timeout=min(60, remaining))
+            if actual is not None:
+                return actual
+            last = 'HTTP 404: package is not yet downloadable'
+        except urllib.error.HTTPError as error:
+            if error.code not in (408, 429, 500, 502, 503, 504):
+                raise
+            last = f'HTTP {error.code}'
+            try:
+                retry_after = float(error.headers.get('Retry-After', '0'))
+                if math.isfinite(retry_after) and retry_after > 0:
+                    retry_delay = max(retry_delay, retry_after)
+            except (AttributeError, ValueError):
+                pass
+        except (urllib.error.URLError, TimeoutError, ConnectionError) as error:
+            last = type(error).__name__
+        remaining = deadline - clock()
+        if remaining <= 0:
+            break
+        pause = min(retry_delay, remaining)
+        print(f'{identity} {version}: waiting for public download '
+              f'(attempt {attempt}, elapsed {clock() - started:.0f}s, {last}); '
+              f'retrying in {pause:.0f}s.', flush=True)
+        sleep(pause)
+    raise RuntimeError(f'{identity} {version} was not downloadable within '
+                       f'{timeout_seconds:g} seconds after publication ({last}). '
+                       'Rerun only the publish job to reuse its validated artifacts; '
+                       'do not rebuild or replace an existing package version.')
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('mode', choices=['check', 'verify'])
     parser.add_argument('directory', type=Path)
+    parser.add_argument('--timeout-seconds', type=positive_seconds,
+                        default=os.environ.get('NUGET_VERIFY_TIMEOUT_SECONDS', '720'),
+                        help='Public download wait budget (default: 720 seconds).')
     args = parser.parse_args()
     packages = list(args.directory.glob('*.nupkg'))
     if len(packages) != 1:
         raise ValueError(f'Expected exactly one package; found {len(packages)}.')
     expected = packages[0].read_bytes()
     identity, version, _ = package_info(expected)
-    attempts = 24 if args.mode == 'verify' else 1
-    for attempt in range(attempts):
-        actual = download(identity, version)
-        if actual is not None:
-            compare(expected, actual)
-            break
-        if attempt + 1 < attempts:
-            time.sleep(10)
-    if actual is None and args.mode == 'verify':
-        raise RuntimeError(f'{identity} {version} was not downloadable after publication.')
+    actual = (wait_for_package(identity, version, timeout_seconds=args.timeout_seconds)
+              if args.mode == 'verify' else download(identity, version))
+    if actual is not None:
+        # A successful response alone is not proof of package integrity. Never
+        # retry a payload mismatch or accept a different immutable version.
+        compare(expected, actual)
     if path := os.environ.get('GITHUB_OUTPUT'):
         with open(path, 'a', encoding='utf-8') as output:
             output.write(f'exists={str(actual is not None).lower()}\n')
