@@ -7,7 +7,7 @@ for path in packages:
         names = package.namelist()
         assert any(n.startswith('lib/net8.0/') and n.endswith('.dll') for n in names), 'Missing .NET 8 assembly'
         assert any(n.startswith('lib/net10.0/') and n.endswith('.dll') for n in names), 'Missing .NET 10 assembly'
-        for asset in ['library.js', 'interop.js', 'templates.js', 'transport.js', 'references.js']:
+        for asset in ['library.js', 'interop.js', 'templates.js', 'transport.js', 'references.js', 'template-lifetime.js']:
             matches = [n for n in names if n.startswith('staticwebassets/') and n.endswith('/' + asset)]
             assert matches, f'Missing packaged static asset: {asset}'
             assert len(package.read(matches[0])) > 100, f'Empty asset: {asset}'

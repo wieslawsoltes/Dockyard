@@ -67,6 +67,41 @@ await using (var subscriptionModule = new BrowserModule(subscriptionJs))
     await Task.WhenAll(first, second);
     Check(subscriptionJs.Session.Subscription.NativeDisposals == 1, "Subscription cleanup must run once.");
 }
+// The visual component must share its completion fence, not just the nonvisual module.
+var componentJs = new FakeRuntime();
+var component = new InteractiveProbe();
+await component.InitializeAsync(componentJs);
+Check(component.IsReady, "Ready state must follow a completed mount.");
+componentJs.Session.DisposeBarrier = new(TaskCreationOptions.RunContinuationsAsynchronously);
+var componentFirst = component.DisposeAsync().AsTask();
+var componentSecond = component.DisposeAsync().AsTask();
+Check(component.IsDisposed && !component.IsReady && !componentSecond.IsCompleted, "Concurrent visual cleanup must await the same native fence.");
+componentJs.Session.DisposeBarrier.SetResult();
+await Task.WhenAll(componentFirst, componentSecond);
+Check(component.Control is null && componentJs.Session.Mounted.HandleDisposals == 1, "Cleanup must release and clear the visual control handle once.");
+
+var failureJs = new FakeRuntime();
+var failedComponent = new InteractiveProbe();
+await failedComponent.InitializeAsync(failureJs);
+failureJs.Session.DisposeFailure = new InvalidOperationException("native cleanup failed");
+for (var attempt = 0; attempt < 2; attempt++)
+{
+    try { await failedComponent.DisposeAsync(); throw new Exception("Expected cleanup failure."); }
+    catch (AggregateException) { }
+}
+Check(failureJs.Session.NativeDisposals == 1 && failureJs.Session.Mounted.HandleDisposals == 1, "Failure must still release the handle, run once and remain observable.");
+
+var lateJs = new BlockingRuntime();
+var outlet = new BrowserTemplateOutlet();
+typeof(BrowserTemplateOutlet).GetProperty("JS", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!.SetValue(outlet, lateJs);
+var loading = (Task)typeof(BrowserTemplateOutlet).GetMethod("OnAfterRenderAsync", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!.Invoke(outlet, [true])!;
+var outletFirst = outlet.DisposeAsync().AsTask();
+var outletSecond = outlet.DisposeAsync().AsTask();
+Check(!outletSecond.IsCompleted, "Template disposal must wait for a late module import.");
+lateJs.Import.SetResult(lateJs.Bridge);
+await Task.WhenAll(loading, outletFirst, outletSecond);
+Check(lateJs.Bridge.HandleDisposals == 1, "A removed template must release a module imported after removal exactly once.");
+
 var prerenderJs = new FakeRuntime();
 var services = new ServiceCollection().AddLogging().AddSingleton<IJSRuntime>(prerenderJs).BuildServiceProvider();
 await using (var renderer = new HtmlRenderer(services, services.GetRequiredService<ILoggerFactory>()))
@@ -82,6 +117,10 @@ Check(prerenderJs.Imports == 0, "Static prerender must not call JavaScript.");
 Console.WriteLine("Managed lifecycle, cancellation, references, and static prerender passed.");
 
 public sealed class ProbeComponent : BrowserComponent { }
+public sealed class InteractiveProbe : BrowserComponent
+{
+    public Task InitializeAsync(IJSRuntime js) { JS = js; return OnAfterRenderAsync(true); }
+}
 public sealed class FakeRuntime : IJSRuntime
 {
     public int Imports;
@@ -97,7 +136,10 @@ public sealed class FakeRuntime : IJSRuntime
 }
 public sealed class FakeReference : IJSObjectReference
 {
-    private FakeReference? _session, _subscription;
+    private FakeReference? _session, _subscription, _mounted;
+    public FakeReference Mounted => _mounted ??= new();
+    public Exception? DisposeFailure;
+    public int HandleDisposals;
     public FakeReference Session => _session ??= new();
     public FakeReference Subscription => _subscription ??= new();
     public int Opens, NativeDisposals;
@@ -114,15 +156,16 @@ public sealed class FakeReference : IJSObjectReference
             case "open": Opens++; result = Session; break;
             case "exports": result = new[] { "Model" }; break;
             case "construct": result = new FakeReference(); break;
+            case "mount": result = Mounted; break;
             case "set": _value = args![2]; break;
             case "get": result = _value; break;
             case "subscribe": result = Subscription; break;
-            case "dispose": NativeDisposals++; if (DisposeBarrier is not null) return new ValueTask<TValue>(WaitDispose<TValue>()); break;
+            case "dispose": NativeDisposals++; if (DisposeFailure is not null) return ValueTask.FromException<TValue>(DisposeFailure); if (DisposeBarrier is not null) return new ValueTask<TValue>(WaitDispose<TValue>()); break;
             default: throw new InvalidOperationException(identifier);
         }
         return ValueTask.FromResult(result is null ? default! : (TValue)result);
     }
-    public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+    public ValueTask DisposeAsync() { HandleDisposals++; return ValueTask.CompletedTask; }
 }
 public sealed class BlockingRuntime : IJSRuntime
 {
