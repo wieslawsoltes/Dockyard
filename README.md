@@ -5,7 +5,7 @@ Independent AvalonDock-style docking components for JavaScript and Blazor.
 [![CI](https://github.com/wieslawsoltes/Dockyard/actions/workflows/ci.yml/badge.svg)](https://github.com/wieslawsoltes/Dockyard/actions/workflows/ci.yml)
 [![npm](https://img.shields.io/npm/v/%40wieslawsoltes%2Fdockyard)](https://www.npmjs.com/package/@wieslawsoltes/dockyard)
 [![npm downloads](https://img.shields.io/npm/dm/%40wieslawsoltes%2Fdockyard)](https://www.npmjs.com/package/@wieslawsoltes/dockyard)
-[![NuGet](https://img.shields.io/nuget/v/Dockyard.Blazor)](https://www.nuget.org/packages/Dockyard.Blazor)
+[![Dockyard.Blazor on NuGet](https://img.shields.io/nuget/v/Dockyard.Blazor?label=Dockyard.Blazor&logo=nuget)](https://www.nuget.org/packages/Dockyard.Blazor)
 [![NuGet downloads](https://img.shields.io/nuget/dt/Dockyard.Blazor)](https://www.nuget.org/packages/Dockyard.Blazor)
 [![Blazor](https://github.com/wieslawsoltes/Dockyard/actions/workflows/blazor.yml/badge.svg)](https://github.com/wieslawsoltes/Dockyard/actions/workflows/blazor.yml)
 
