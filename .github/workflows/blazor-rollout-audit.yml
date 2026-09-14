@@ -1,0 +1,27 @@
+name: Blazor rollout audit
+on:
+  pull_request:
+    paths: ['.github/workflows/blazor-rollout-audit.yml', 'blazor/rollout-audit.py']
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Inspect all nine repositories and anonymous NuGet downloads
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 blazor/rollout-audit.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: blazor-rollout-audit
+          path: artifacts/rollout
+          retention-days: 7
+          if-no-files-found: error
