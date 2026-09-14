@@ -4,7 +4,7 @@
 @using System.Text.Json
 @using Microsoft.AspNetCore.Components
 @using Microsoft.JSInterop
-<main>
+<main data-native-template-test="true">
     <h1>Dockyard + Blazor</h1>
     <p>A native docking workspace with real Razor pane content, running through the NuGet component.</p>
     <button id="action" @onclick="AddDocument" disabled="@(!_ready)">Add document</button>
@@ -12,11 +12,12 @@
     <button id="toggle" @onclick="Toggle">@(_show ? "Unmount" : "Mount")</button>
     <BrowserTemplate TItem="JsonElement" Id="@_paneTemplate" Context="pane">
         <h3>@pane.GetProperty("Title").GetString()</h3>
-        <button id="pane-counter" @onclick="Increment">Pane count: @_paneCount</button>
+        <button id="pane-counter" class="native-template-check" @onclick="Increment">Pane count: @_paneCount</button>
         <p>Float and dock this pane; its Razor content remains interactive.</p>
     </BrowserTemplate>
     @if (_show) { <DockingManager @ref="_dock" Theme="@_theme" Ready="Initialize" Changed="OnChanged" /> }
     <output id="status">@_status</output><output id="result">@_result</output>
+    <output id="native-template-result">@(_paneCount > 0 ? "Passed" : "Waiting")</output>
     <p>Native event notifications: @_events</p>
     <InteropProbe />
 </main>

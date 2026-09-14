@@ -30,6 +30,11 @@
         if (!firstRender || _disposed) return;
         _module = new BrowserModule(JS, "./probe.js");
         var probe = await _module.CreateAsync("Probe");
+        await using var function = await _module.InvokeReferenceAsync("CreateFunction", [3]);
+        if (await _module.CallFunctionAsync<int>(function, [4]) != 7 || await _module.InvokeAsync<int>("ApplyFunction", [function, 5]) != 8) throw new InvalidOperationException("Native function reference failed.");
+        var literal = new Dictionary<string, string> { ["$fn"] = "module", ["url"] = "./must-not-load.js" };
+        var echoed = await _module.CallJsonAsync<Dictionary<string, string>>(probe, "Echo", [BrowserValue.Literal(literal)]);
+        if (echoed["$fn"] != "module") throw new InvalidOperationException("Literal application data was interpreted as code.");
         var large = string.Concat(Enumerable.Repeat("Zażółć 🙂", 20000));
         var received = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
         await using (var subscription = await _module.SubscribeJsonAsync<string>(probe, "Changed", value => { received.TrySetResult(value); return Task.CompletedTask; }))

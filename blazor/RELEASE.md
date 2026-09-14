@@ -1,9 +1,10 @@
 # Dockyard.Blazor 0.2.0
 
-- Add a self-contained .NET 8 / .NET 10 Razor Class Library with DockingManager, typed document options and native engine access.
-- Support interactive WebAssembly and Server hosting, prerender-safe initialization, native object references, ordered event callbacks and deterministic disposal.
-- Bundle the real Dockyard JavaScript and styles without a consumer npm/CDN requirement.
-- Add WebAssembly and Server samples, bridge tests, managed lifecycle checks and actual-package Chromium validation.
-- Add independently versioned NuGet and GitHub release publishing after successful validation.
+- Self-contained .NET 8/.NET 10 Razor class library with the actual Dockyard JavaScript engine and styles.
+- DockingManager, typed document/tool options, native model access, layout persistence and events.
+- Real Razor pane templates with scoped registration, shadow-DOM input handling and independent root lifetimes.
+- Streamed JSON/binary results and full DTO notifications, opaque native function references and literal application-data arguments.
+- WebAssembly and Interactive Server samples, actual-package managed/browser tests, native pane callback regression and non-root hosting.
+- Validation-gated NuGet publication, public payload verification, symbols, runnable samples and checksums.
 
-This package wraps the browser engine. Advanced native APIs use the generic interop surface. Razor RenderFragment pane templates and synchronous .NET callbacks into browser-only APIs are not implemented; see the package README for supported callback and ownership patterns.
+This package wraps the browser engine rather than reimplementing a desktop framework in C#. Generic native interop complements typed APIs. Synchronous native callbacks execute in the browser; see INTEGRATION.md for ownership, template state and hosting contracts. Existing native compatibility limits remain applicable.

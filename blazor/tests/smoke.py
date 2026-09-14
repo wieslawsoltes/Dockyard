@@ -50,6 +50,9 @@ try:
                 page.locator('#template-input').fill('Razor two-way binding')
                 page.locator('#template-input').press('Tab')
                 expect(page.locator('#template-value')).to_have_text('Razor two-way binding')
+                if page.locator('main').get_attribute('data-native-template-test'):
+                    page.locator('.native-template-check').first.click(timeout=30000)
+                    expect(page.locator('#native-template-result')).to_have_text('Passed')
                 page.locator('#action').click()
                 expect(page.locator('#result')).to_have_text('Passed', timeout=30000)
                 page.screenshot(path=str(out / f'{name}.png'), full_page=True)

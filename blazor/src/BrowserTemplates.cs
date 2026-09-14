@@ -115,6 +115,8 @@ public sealed class BrowserTemplateOutlet : ComponentBase, IAsyncDisposable
             _context = document.RootElement.Clone(); _loadedContext = id; _loadedVersion = version;
         }
         catch (JSDisconnectedException) when (_disposed) { }
+        catch (JSException) when (_disposed) { }
+        catch (ObjectDisposedException) when (_disposed) { }
         finally { _loading = false; }
         if (!_disposed) StateHasChanged();
     }

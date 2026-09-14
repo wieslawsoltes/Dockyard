@@ -14,3 +14,5 @@ export function MountTemplate(host, factory) {
   const element = factory({ label: 'Native template context' }); root.append(element);
   return { Dispose() { factory.dispose(element); } };
 }
+export function CreateFunction(increment) { return value => value + increment; }
+export function ApplyFunction(fn, value) { return fn(value); }

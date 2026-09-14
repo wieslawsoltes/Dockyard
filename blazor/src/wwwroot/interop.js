@@ -1,3 +1,4 @@
+import { unwrap, install } from './references.js';
 import { stream, jsonText, deliver } from './transport.js';
 const forbidden = new Set(['__proto__', 'prototype', 'constructor']);
 function locationOf(target, path) {
@@ -14,6 +15,8 @@ function locationOf(target, path) {
 function member(target, path) { const [owner, key] = locationOf(target, path); return owner[key]; }
 function baseUrl(url) { return new URL(url, globalThis.document?.baseURI ?? import.meta.url).href; }
 async function resolve(value) {
+  value = unwrap(value);
+  if (value && typeof value === 'object' && Object.hasOwn(value, '$literal')) return value.$literal;
   if (!value || typeof value !== 'object') return value;
   if (Object.hasOwn(value, '$fn')) {
     if (value.$fn === 'razor') return (await import('./templates.js')).createFactory(value);
@@ -188,4 +191,5 @@ export class Session {
     if (errors.length) throw new AggregateError(errors, 'One or more browser resources failed to dispose.');
   }
 }
+install(Session);
 export async function open(url) { return new Session(await import(baseUrl(url))); }
