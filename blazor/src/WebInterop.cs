@@ -29,6 +29,7 @@ public partial class BrowserModule : IAsyncDisposable
     private IJSObjectReference? _bridge;
     private Task<IJSObjectReference>? _initialization;
     private bool _disposed;
+    private Task? _disposal;
     public BrowserModule(IJSRuntime js, string? libraryUrl = null)
     {
         _js = js ?? throw new ArgumentNullException(nameof(js));
@@ -39,24 +40,25 @@ public partial class BrowserModule : IAsyncDisposable
         _bridge = await _js.InvokeAsync<IJSObjectReference>("import", "./_content/Dockyard.Blazor/interop.js");
         return await _bridge.InvokeAsync<IJSObjectReference>("open", _libraryUrl);
     }
-    private async Task<IJSObjectReference> SessionAsync()
+    private async Task<IJSObjectReference> SessionAsync(CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         Task<IJSObjectReference> task;
         lock (_sync) { ObjectDisposedException.ThrowIf(_disposed, this); task = _initialization ??= InitializeAsync(); }
-        var session = await task;
+        var session = await task.WaitAsync(cancellationToken);
         lock (_sync) ObjectDisposedException.ThrowIf(_disposed, this);
         return session;
     }
-    public async ValueTask<string[]> GetExportsAsync(CancellationToken cancellationToken = default) => await (await SessionAsync()).InvokeAsync<string[]>("exports", cancellationToken);
-    public async ValueTask<IJSObjectReference> CreateAsync(string type, object?[]? arguments = null, CancellationToken cancellationToken = default) => await (await SessionAsync()).InvokeAsync<IJSObjectReference>("construct", cancellationToken, type, arguments ?? []);
-    public async ValueTask<T> InvokeAsync<T>(string exportName, object?[]? arguments = null, CancellationToken cancellationToken = default) => await (await SessionAsync()).InvokeAsync<T>("invoke", cancellationToken, exportName, arguments ?? []);
-    public async ValueTask InvokeVoidAsync(string exportName, object?[]? arguments = null, CancellationToken cancellationToken = default) => await (await SessionAsync()).InvokeVoidAsync("invoke", cancellationToken, exportName, arguments ?? []);
-    public async ValueTask<T> CallAsync<T>(IJSObjectReference target, string method, object?[]? arguments = null, CancellationToken cancellationToken = default) => await (await SessionAsync()).InvokeAsync<T>("call", cancellationToken, target, method, arguments ?? []);
-    public async ValueTask CallVoidAsync(IJSObjectReference target, string method, object?[]? arguments = null, CancellationToken cancellationToken = default) => await (await SessionAsync()).InvokeVoidAsync("call", cancellationToken, target, method, arguments ?? []);
-    public async ValueTask<T> GetAsync<T>(IJSObjectReference? target, string property, CancellationToken cancellationToken = default) => await (await SessionAsync()).InvokeAsync<T>("get", cancellationToken, target, property);
-    public async ValueTask SetAsync(IJSObjectReference target, string property, object? value, CancellationToken cancellationToken = default) => await (await SessionAsync()).InvokeVoidAsync("set", cancellationToken, target, property, value);
+    public async ValueTask<string[]> GetExportsAsync(CancellationToken cancellationToken = default) => await (await SessionAsync(cancellationToken)).InvokeAsync<string[]>("exports", cancellationToken);
+    public async ValueTask<IJSObjectReference> CreateAsync(string type, object?[]? arguments = null, CancellationToken cancellationToken = default) => await (await SessionAsync(cancellationToken)).InvokeAsync<IJSObjectReference>("construct", cancellationToken, type, arguments ?? []);
+    public async ValueTask<T> InvokeAsync<T>(string exportName, object?[]? arguments = null, CancellationToken cancellationToken = default) => await (await SessionAsync(cancellationToken)).InvokeAsync<T>("invoke", cancellationToken, exportName, arguments ?? []);
+    public async ValueTask InvokeVoidAsync(string exportName, object?[]? arguments = null, CancellationToken cancellationToken = default) => await (await SessionAsync(cancellationToken)).InvokeVoidAsync("invoke", cancellationToken, exportName, arguments ?? []);
+    public async ValueTask<T> CallAsync<T>(IJSObjectReference target, string method, object?[]? arguments = null, CancellationToken cancellationToken = default) => await (await SessionAsync(cancellationToken)).InvokeAsync<T>("call", cancellationToken, target, method, arguments ?? []);
+    public async ValueTask CallVoidAsync(IJSObjectReference target, string method, object?[]? arguments = null, CancellationToken cancellationToken = default) => await (await SessionAsync(cancellationToken)).InvokeVoidAsync("call", cancellationToken, target, method, arguments ?? []);
+    public async ValueTask<T> GetAsync<T>(IJSObjectReference? target, string property, CancellationToken cancellationToken = default) => await (await SessionAsync(cancellationToken)).InvokeAsync<T>("get", cancellationToken, target, property);
+    public async ValueTask SetAsync(IJSObjectReference target, string property, object? value, CancellationToken cancellationToken = default) => await (await SessionAsync(cancellationToken)).InvokeVoidAsync("set", cancellationToken, target, property, value);
     public async ValueTask<IJSObjectReference> MountAsync(ElementReference host, object options) => await (await SessionAsync()).InvokeAsync<IJSObjectReference>("mount", host, options);
-    public async ValueTask UpdateAsync(IJSObjectReference target, object options) => await (await SessionAsync()).InvokeVoidAsync("update", cancellationToken: default, target, options);
+    public async ValueTask UpdateAsync(IJSObjectReference target, object options) => await (await SessionAsync()).InvokeVoidAsync("update", target, options);
     public async ValueTask ReleaseAsync(IJSObjectReference target)
     {
         try { await (await SessionAsync()).InvokeVoidAsync("release", target); }
@@ -76,7 +78,11 @@ public partial class BrowserModule : IAsyncDisposable
         await result.DisposeAsync();
         throw new ObjectDisposedException(GetType().Name);
     }
-    public async ValueTask DisposeAsync()
+    public ValueTask DisposeAsync()
+    {
+        lock (_sync) return new ValueTask(_disposal ??= DisposeCoreAsync());
+    }
+    private async Task DisposeCoreAsync()
     {
         Task<IJSObjectReference>? task; BrowserSubscription[] subscriptions;
         lock (_sync) { if (_disposed) return; _disposed = true; task = _initialization; subscriptions = _subscriptions.ToArray(); _subscriptions.Clear(); }
@@ -121,11 +127,15 @@ public sealed class BrowserSubscription : IAsyncDisposable
     private readonly IJSObjectReference _subscription;
     private readonly DotNetObjectReference<Receiver> _receiver;
     private readonly Action<BrowserSubscription> _onDisposed;
-    private int _disposed;
+    private readonly object _sync = new();
+    private Task? _disposal;
     internal BrowserSubscription(IJSObjectReference subscription, DotNetObjectReference<Receiver> receiver, Action<BrowserSubscription> onDisposed) { _subscription = subscription; _receiver = receiver; _onDisposed = onDisposed; }
-    public async ValueTask DisposeAsync()
+    public ValueTask DisposeAsync()
     {
-        if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
+        lock (_sync) return new ValueTask(_disposal ??= DisposeCoreAsync());
+    }
+    private async Task DisposeCoreAsync()
+    {
         _receiver.Value.Stop();
         try { await _subscription.InvokeVoidAsync("dispose"); }
         catch (JSDisconnectedException) { }

@@ -12,6 +12,7 @@ const project = config.project ?? `blazor/src/${name}.Blazor.csproj`;
 function write(path, text) { mkdirSync(dirname(resolve(root, path)), { recursive: true }); writeFileSync(resolve(root, path), text); }
 function source(path) { return readFileSync(resolve(common, path), 'utf8').replaceAll('Dockyard', name); }
 const copies = {
+  'tests/lifetime-regression.test.mjs': 'blazor/tests/lifetime-regression.test.mjs',
   'src/References.cs': 'blazor/src/References.g.cs',
   'src/wwwroot/references.js': `${out}/references.js`,
   'tests/references.test.mjs': 'blazor/tests/references.test.mjs',
@@ -39,10 +40,7 @@ const copies = {
   'tests/registry_test.py': 'blazor/tests/registry_test.py',
   'nuget-registry.py': 'blazor/nuget-registry.py'
 };
-for (const [from, to] of Object.entries(copies)) {
-  // The C# compiler treats .g.cs as generated: project Nullable alone is not sufficient.
-  write(to, (to.endsWith('.g.cs') ? '#nullable enable\n' : '') + source(from));
-}
+for (const [from, to] of Object.entries(copies)) write(to, (to.endsWith('.g.cs') ? '#nullable enable\n' : '') + source(from));
 for (const path of ['sample/Sample.csproj', 'server/Server.csproj', 'tests/Managed/Managed.csproj']) {
   const destination = `blazor/${path}`;
   const reference = relative(dirname(destination), project).replaceAll('\\', '/');

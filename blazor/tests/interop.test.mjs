@@ -71,7 +71,7 @@ test('unsafe prototype paths and non-callable exports fail explicitly', async ()
 test('dispose cleans remaining resources even when one native cleanup fails', async () => {
   class Failing { Dispose() { throw new Error('cleanup'); } }
   const s = new Session({ api: { Failing, Model } }); const m = await s.construct('Model'); await s.construct('Failing');
-  await assert.rejects(s.dispose(), AggregateError); assert.equal(m.disposals, 1); await s.dispose();
+  await assert.rejects(s.dispose(), AggregateError); assert.equal(m.disposals, 1); await assert.rejects(s.dispose(), AggregateError);
 });
 test('shared acyclic graphs have bounded serialization cost', () => {
   let value = { n: 1 }; for (let i = 0; i < 20; i++) value = { a: value, b: value, c: value };

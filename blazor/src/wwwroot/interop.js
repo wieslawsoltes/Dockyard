@@ -2,6 +2,7 @@ import { unwrap, install } from './references.js';
 import { stream, jsonText, deliver } from './transport.js';
 const forbidden = new Set(['__proto__', 'prototype', 'constructor']);
 function locationOf(target, path) {
+  target = unwrap(target);
   const parts = String(path).split('.');
   if (parts.some(p => !p || forbidden.has(p))) throw new TypeError(`Invalid member path: ${path}`);
   const key = parts.pop();
@@ -14,30 +15,59 @@ function locationOf(target, path) {
 }
 function member(target, path) { const [owner, key] = locationOf(target, path); return owner[key]; }
 function baseUrl(url) { return new URL(url, globalThis.document?.baseURI ?? import.meta.url).href; }
-async function resolve(value) {
-  value = unwrap(value);
-  if (value && typeof value === 'object' && Object.hasOwn(value, '$literal')) return value.$literal;
-  if (!value || typeof value !== 'object') return value;
-  if (Object.hasOwn(value, '$fn')) {
-    if (value.$fn === 'razor') return (await import('./templates.js')).createFactory(value);
-    if (value.$fn === 'property') return item => member(item, value.path);
-    if (value.$fn === 'constant') return () => value.value;
-    if (value.$fn === 'setter') return (item, next) => { const [owner, key] = locationOf(item, value.path); owner[key] = next; };
-    if (value.$fn === 'dotnet') return (...args) => value.receiver.invokeMethodAsync(value.method, ...args);
-    if (value.$fn === 'module') {
-      const fn = member(await import(baseUrl(value.url)), value.name);
-      if (typeof fn !== 'function') throw new TypeError(`Not a function: ${value.name}`);
-      return fn;
+async function callback(value) {
+  if (value.$fn === 'razor') return (await import('./templates.js')).createFactory(value);
+  if (value.$fn === 'property') return item => member(item, value.path);
+  if (value.$fn === 'constant') return () => value.value;
+  if (value.$fn === 'setter') return (item, next) => { const [owner, key] = locationOf(item, value.path); owner[key] = next; };
+  if (value.$fn === 'dotnet') return (...args) => value.receiver.invokeMethodAsync(value.method, ...args);
+  if (value.$fn === 'module') {
+    const fn = member(await import(baseUrl(value.url)), value.name);
+    if (typeof fn !== 'function') throw new TypeError(`Not a function: ${value.name}`);
+    return fn;
+  }
+  throw new TypeError(`Unknown callback kind: ${value.$fn}`);
+}
+/** Resolve configuration graphs without mutating native data, breaking aliases, or recursing through cycles. */
+async function resolve(input) {
+  const records = new Map(), work = [], callbacks = new Map();
+  const container = value => value !== null && typeof value === 'object' &&
+    (Array.isArray(value) || Object.getPrototypeOf(value) === Object.prototype);
+  const record = value => {
+    if (!records.has(value)) {
+      const item = { value, output: value, entries: [], parents: new Set(), changed: false };
+      records.set(value, item); work.push(item);
     }
-    throw new TypeError(`Unknown callback kind: ${value.$fn}`);
+    return records.get(value);
+  };
+  const root = record({ value: input });
+  for (let index = 0; index < work.length; index++) {
+    const item = work[index];
+    for (const [key, original] of Object.entries(item.value)) {
+      let value = unwrap(original), child = null, literal = value !== original;
+      if (value && typeof value === 'object' && Object.hasOwn(value, '$literal')) {
+        value = value.$literal; literal = true;
+      } else if (value && typeof value === 'object' && Object.hasOwn(value, '$fn')) {
+        if (!callbacks.has(value)) callbacks.set(value, callback(value));
+        value = await callbacks.get(value); literal = true;
+      }
+      if (!literal && container(value)) { child = record(value); child.parents.add(item); }
+      item.entries.push({ key, value, child });
+      if (value !== original) item.changed = true;
+    }
   }
-  if (Array.isArray(value)) {
-    const items = await Promise.all(value.map(resolve));
-    return items.some((v, i) => v !== value[i]) ? items : value;
+  // Only paths leading to a transformed descriptor need copies. Unchanged native
+  // graphs keep their original identity, even when they contain cycles or aliases.
+  const changed = work.filter(item => item.changed);
+  for (let index = 0; index < changed.length; index++) {
+    for (const parent of changed[index].parents) if (!parent.changed) {
+      parent.changed = true; changed.push(parent);
+    }
   }
-  if (Object.getPrototypeOf(value) !== Object.prototype) return value;
-  const entries = await Promise.all(Object.entries(value).map(async ([k, v]) => [k, await resolve(v)]));
-  return entries.some(([k, v]) => value[k] !== v) ? Object.fromEntries(entries) : value;
+  for (const item of changed) item.output = Array.isArray(item.value) ? new Array(item.value.length) : {};
+  for (const item of changed) for (const { key, value, child } of item.entries)
+    Object.defineProperty(item.output, key, { value: child ? child.output : value, writable: true, enumerable: true, configurable: true });
+  return root.output.value;
 }
 /** Bounded value snapshot, not a serializer for arbitrary live engine/model graphs. */
 export function snapshot(value, seen = new WeakSet(), depth = 0, budget = { nodes: 50000, chars: 1048576, native: new WeakSet() }) {
@@ -89,13 +119,14 @@ function disposeNative(value) {
   }
 }
 export class Session {
-  constructor(entry) { this.entry = entry; this.api = entry.api ?? entry; this.owned = new Set(); this.released = new WeakSet(); this.subscriptions = new Set(); this.disposed = false; }
+  constructor(entry) { this.entry = entry; this.api = entry.api ?? entry; this.owned = new Set(); this.released = new WeakMap(); this.pendingReleases = new Set(); this.disposal = null; this.subscriptions = new Set(); this.disposed = false; }
   check() { if (this.disposed) throw new Error('The Blazor session has been disposed.'); }
   exports() { this.check(); return Object.keys(this.api).sort(); }
   async construct(name, args = []) {
     this.check(); const Type = member(this.api, name);
     if (typeof Type !== 'function') throw new TypeError(`Not a constructor: ${name}`);
-    const result = Reflect.construct(Type, await resolve(args));
+    const values = await resolve(args); this.check();
+    const result = Reflect.construct(Type, values);
     if (this.disposed) { await disposeNative(result); throw new Error('The Blazor session has been disposed.'); }
     this.owned.add(result); return result;
   }
@@ -113,7 +144,8 @@ export class Session {
   async mount(host, options) {
     this.check();
     if (typeof this.entry.mount !== 'function') throw new TypeError('This package does not expose a visual control. Use the engine service.');
-    const result = await this.entry.mount(host, await resolve(options ?? {}));
+    const values = await resolve(options ?? {}); this.check();
+    const result = await this.entry.mount(host, values);
     if (this.disposed) { await disposeNative(result); throw new Error('The Blazor session has been disposed.'); }
     this.owned.add(result);
     if (typeof MutationObserver !== 'undefined') {
@@ -126,13 +158,14 @@ export class Session {
     }
     return result;
   }
-  async update(target, options) { this.check(); const values = await resolve(options ?? {}); this.check(); if (this.entry.update) await this.entry.update(target, values); else for (const [k, v] of Object.entries(values)) await this.set(target, k, v); }
+  async update(target, options) { target = unwrap(target); this.check(); const values = await resolve(options ?? {}); this.check(); if (this.entry.update) await this.entry.update(target, values); else for (const [k, v] of Object.entries(values)) await this.set(target, k, v); }
   async transfer(operation, target, path, args = [], format = 'json', limit) {
     this.check();
     let result;
     if (operation === 'call') result = await this.call(target, path, args);
     else if (operation === 'invoke') result = await this.invoke(path, args);
     else if (operation === 'get') result = this.get(target, path);
+    else if (operation === 'function') result = await this.callFunction(target, args);
     else if (operation === 'batch') {
       result = [];
       for (const call of args[0]) result.push(await this.call(call.target, call.method, call.arguments ?? []));
@@ -141,7 +174,7 @@ export class Session {
   }
   subscribeJson(target, path, receiver) { return this.subscribe(target, path, receiver, true); }
   async subscribe(target, path, receiver, json = false) {
-    this.check(); let active = true, pending = Promise.resolve();
+    this.check(); target = unwrap(target); let active = true, pending = Promise.resolve();
     const send = (...args) => {
       if (!active || this.disposed) return;
       const item = args.length > 1 ? args[args.length - 1] : args[0];
@@ -156,7 +189,6 @@ export class Session {
       target.addEventListener(name, handler); stop = () => target.removeEventListener(name, handler);
     } else {
       const signal = path ? member(target, path) : target;
-      // Prefer disposable subscription contracts. Some add() APIs return the listener, not an unsubscriber.
       if (typeof signal?.subscribe === 'function') {
         const token = signal.subscribe(send, error => send({ error: snapshot(error) }), () => send({ completed: true }));
         stop = typeof token === 'function' ? token : () => disposeNative(token);
@@ -174,21 +206,46 @@ export class Session {
         else throw new TypeError(`Event ${path} does not provide a disposable subscription.`);
       } else throw new TypeError(`Not an event or observable: ${path}`);
     }
-    const subscription = { target, dispose: () => { if (!active) return; active = false; try { stop(); } finally { this.subscriptions.delete(subscription); } } };
+    let disposal;
+    const subscription = { target, dispose: () => {
+      if (disposal) return disposal;
+      active = false; this.subscriptions.delete(subscription);
+      try { disposal = Promise.resolve(stop()); } catch (error) { disposal = Promise.reject(error); }
+      return disposal;
+    } };
     this.subscriptions.add(subscription); return subscription;
   }
-  async release(value) {
+  release(value) {
+    value = unwrap(value);
+    if (!value || (typeof value !== 'object' && typeof value !== 'function')) return Promise.resolve();
+    const previous = this.released.get(value);
+    if (previous) return previous;
     this.owned.delete(value);
-    for (const sub of [...this.subscriptions]) if (sub.target === value) sub.dispose();
-    if (value && (typeof value === 'object' || typeof value === 'function') && !this.released.has(value)) { this.released.add(value); await disposeNative(value); }
+    const task = Promise.resolve().then(async () => {
+      const errors = [];
+      for (const sub of [...this.subscriptions]) if (sub.target === value) {
+        try { await sub.dispose(); } catch (error) { errors.push(error); }
+      }
+      try { await disposeNative(value); } catch (error) { errors.push(error); }
+      if (errors.length) throw new AggregateError(errors, 'Browser resource cleanup failed.');
+    });
+    this.released.set(value, task); this.pendingReleases.add(task);
+    task.then(() => this.pendingReleases.delete(task), () => this.pendingReleases.delete(task));
+    return task;
   }
-  async dispose() {
-    if (this.disposed) return; this.disposed = true;
-    const errors = [];
-    for (const sub of [...this.subscriptions]) { try { await sub.dispose(); } catch (e) { errors.push(e); } }
-    this.subscriptions.clear();
-    for (const item of [...this.owned].reverse()) { try { await this.release(item); } catch (e) { errors.push(e); } }
-    if (errors.length) throw new AggregateError(errors, 'One or more browser resources failed to dispose.');
+  dispose() {
+    if (this.disposal) return this.disposal;
+    this.disposed = true;
+    const inFlight = [...this.pendingReleases];
+    this.disposal = Promise.resolve().then(async () => {
+      const errors = new Set();
+      for (const sub of [...this.subscriptions]) { try { await sub.dispose(); } catch (error) { errors.add(error); } }
+      this.subscriptions.clear();
+      for (const item of [...this.owned].reverse()) { try { await this.release(item); } catch (error) { errors.add(error); } }
+      for (const task of inFlight) { try { await task; } catch (error) { errors.add(error); } }
+      if (errors.size) throw new AggregateError([...errors], 'One or more browser resources failed to dispose.');
+    });
+    return this.disposal;
   }
 }
 install(Session);
