@@ -336,6 +336,9 @@ def native_modules(page):
         ev(native,'demo.applyPreset("debug")');settle(native)
         doc=ev(native,'demo.manager.AddDocument({Title:"ESM",ContentId:"esm-test",Content:"Native module"}).ContentId')
         assert doc=='esm-test'
+        # AddDocument schedules its DOM realization on an animation frame.
+        # Observe the result instead of racing that render or sleeping a fixed duration.
+        native.get_by_text('Native module',exact=True).wait_for(state='visible',timeout=5000)
         assert native.get_by_text('Native module',exact=True).is_visible()
         assert not errs,errs
     finally:
