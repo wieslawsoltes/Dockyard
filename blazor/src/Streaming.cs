@@ -13,7 +13,7 @@ public partial class BrowserModule
     private static readonly JsonSerializerOptions TransferJson = new(JsonSerializerDefaults.Web);
     private async ValueTask<T> ReadJsonAsync<T>(string operation, IJSObjectReference? target, string member, object?[]? arguments, CancellationToken cancellationToken)
     {
-        await using var reference = await (await SessionAsync()).InvokeAsync<IJSStreamReference>("transfer", cancellationToken, operation, target, member, arguments ?? [], "json", MaximumTransferBytes);
+        await using var reference = await (await SessionAsync(cancellationToken)).InvokeAsync<IJSStreamReference>("transfer", cancellationToken, operation, target, member, arguments ?? [], "json", MaximumTransferBytes);
         await using var input = await reference.OpenReadStreamAsync(MaximumTransferBytes, cancellationToken);
         return (await JsonSerializer.DeserializeAsync<T>(input, TransferJson, cancellationToken))!;
     }
@@ -25,7 +25,7 @@ public partial class BrowserModule
     public ValueTask<byte[]> InvokeBytesAsync(string exportName, object?[]? arguments = null, CancellationToken cancellationToken = default) => ReadBytesAsync("invoke", null, exportName, arguments, cancellationToken);
     private async ValueTask<byte[]> ReadBytesAsync(string operation, IJSObjectReference? target, string method, object?[]? arguments, CancellationToken cancellationToken)
     {
-        await using var reference = await (await SessionAsync()).InvokeAsync<IJSStreamReference>("transfer", cancellationToken, operation, target, method, arguments ?? [], "bytes", MaximumTransferBytes);
+        await using var reference = await (await SessionAsync(cancellationToken)).InvokeAsync<IJSStreamReference>("transfer", cancellationToken, operation, target, method, arguments ?? [], "bytes", MaximumTransferBytes);
         await using var input = await reference.OpenReadStreamAsync(MaximumTransferBytes, cancellationToken);
         using var output = new MemoryStream();
         await input.CopyToAsync(output, cancellationToken);

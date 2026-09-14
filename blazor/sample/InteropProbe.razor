@@ -32,6 +32,7 @@
         var probe = await _module.CreateAsync("Probe");
         await using var function = await _module.InvokeReferenceAsync("CreateFunction", [3]);
         if (await _module.CallFunctionAsync<int>(function, [4]) != 7 || await _module.InvokeAsync<int>("ApplyFunction", [function, 5]) != 8) throw new InvalidOperationException("Native function reference failed.");
+        if (await _module.CallFunctionJsonAsync<int>(function, [8]) != 11) throw new InvalidOperationException("Streamed function invocation failed.");
         var literal = new Dictionary<string, string> { ["$fn"] = "module", ["url"] = "./must-not-load.js" };
         var echoed = await _module.CallJsonAsync<Dictionary<string, string>>(probe, "Echo", [BrowserValue.Literal(literal)]);
         if (echoed["$fn"] != "module") throw new InvalidOperationException("Literal application data was interpreted as code.");

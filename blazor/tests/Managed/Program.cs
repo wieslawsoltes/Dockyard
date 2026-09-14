@@ -26,6 +26,47 @@ await module.DisposeAsync(); await module.DisposeAsync();
 Check(js.Session.NativeDisposals == 1, "Session disposal must be idempotent.");
 try { await module.GetExportsAsync(); throw new Exception("Expected ObjectDisposedException."); }
 catch (ObjectDisposedException) { }
+var cancelledJs = new FakeRuntime();
+await using (var cancelledModule = new BrowserModule(cancelledJs))
+{
+    using var cancelled = new CancellationTokenSource(); cancelled.Cancel();
+    try { await cancelledModule.GetExportsAsync(cancelled.Token); throw new Exception("Expected cancellation."); }
+    catch (OperationCanceledException) { }
+    Check(cancelledJs.Imports == 0, "Pre-cancelled operations must not allocate a browser session.");
+}
+var blockingJs = new BlockingRuntime();
+await using (var blockingModule = new BrowserModule(blockingJs))
+{
+    using var cancelled = new CancellationTokenSource();
+    var waiting = blockingModule.GetExportsAsync(cancelled.Token).AsTask();
+    cancelled.Cancel();
+    try { await waiting.WaitAsync(TimeSpan.FromSeconds(2)); throw new Exception("Expected cancellation."); }
+    catch (OperationCanceledException) { }
+    finally { blockingJs.Import.TrySetResult(blockingJs.Bridge); }
+    Check((await blockingModule.GetExportsAsync()).Length == 1, "Cancellation must not cancel shared initialization for another caller.");
+}
+var disposalJs = new FakeRuntime();
+var disposalModule = new BrowserModule(disposalJs);
+await disposalModule.GetExportsAsync();
+disposalJs.Session.DisposeBarrier = new(TaskCreationOptions.RunContinuationsAsynchronously);
+var disposalOne = disposalModule.DisposeAsync().AsTask();
+var disposalTwo = disposalModule.DisposeAsync().AsTask();
+Check(!disposalTwo.IsCompleted, "Concurrent module disposal must await the native cleanup fence.");
+disposalJs.Session.DisposeBarrier.SetResult();
+await Task.WhenAll(disposalOne, disposalTwo);
+Check(disposalJs.Session.NativeDisposals == 1, "Concurrent module disposal must only execute once.");
+var subscriptionJs = new FakeRuntime();
+await using (var subscriptionModule = new BrowserModule(subscriptionJs))
+{
+    var native = await subscriptionModule.CreateAsync("Model");
+    var subscribed = await subscriptionModule.SubscribeAsync(native, "Changed", _ => Task.CompletedTask);
+    subscriptionJs.Session.Subscription.DisposeBarrier = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    var first = subscribed.DisposeAsync().AsTask(); var second = subscribed.DisposeAsync().AsTask();
+    Check(!second.IsCompleted, "Concurrent subscription disposal must await native cleanup.");
+    subscriptionJs.Session.Subscription.DisposeBarrier.SetResult();
+    await Task.WhenAll(first, second);
+    Check(subscriptionJs.Session.Subscription.NativeDisposals == 1, "Subscription cleanup must run once.");
+}
 var prerenderJs = new FakeRuntime();
 var services = new ServiceCollection().AddLogging().AddSingleton<IJSRuntime>(prerenderJs).BuildServiceProvider();
 await using (var renderer = new HtmlRenderer(services, services.GetRequiredService<ILoggerFactory>()))
@@ -60,6 +101,8 @@ public sealed class FakeReference : IJSObjectReference
     public FakeReference Session => _session ??= new();
     public FakeReference Subscription => _subscription ??= new();
     public int Opens, NativeDisposals;
+    public TaskCompletionSource? DisposeBarrier;
+    private async Task<T> WaitDispose<T>() { await DisposeBarrier!.Task; return default!; }
     private object? _value;
     public ValueTask<TValue> InvokeAsync<TValue>(string identifier, object?[]? args) => InvokeAsync<TValue>(identifier, default, args);
     public ValueTask<TValue> InvokeAsync<TValue>(string identifier, CancellationToken cancellationToken, object?[]? args)
@@ -74,10 +117,21 @@ public sealed class FakeReference : IJSObjectReference
             case "set": _value = args![2]; break;
             case "get": result = _value; break;
             case "subscribe": result = Subscription; break;
-            case "dispose": NativeDisposals++; break;
+            case "dispose": NativeDisposals++; if (DisposeBarrier is not null) return new ValueTask<TValue>(WaitDispose<TValue>()); break;
             default: throw new InvalidOperationException(identifier);
         }
         return ValueTask.FromResult(result is null ? default! : (TValue)result);
     }
     public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+}
+public sealed class BlockingRuntime : IJSRuntime
+{
+    public TaskCompletionSource<IJSObjectReference> Import { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    public FakeReference Bridge { get; } = new();
+    public ValueTask<T> InvokeAsync<T>(string identifier, object?[]? args) => InvokeAsync<T>(identifier, default, args);
+    public async ValueTask<T> InvokeAsync<T>(string identifier, CancellationToken cancellationToken, object?[]? args)
+    {
+        if (identifier != "import") throw new InvalidOperationException(identifier);
+        return (T)(object)await Import.Task.WaitAsync(cancellationToken);
+    }
 }
