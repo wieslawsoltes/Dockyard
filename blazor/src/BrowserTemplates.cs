@@ -21,6 +21,7 @@ public sealed class BrowserTemplateRegistry : IDisposable
     }
     private readonly Dictionary<string, Registration> _templates = new(StringComparer.Ordinal);
     private readonly object _sync = new();
+    private bool _disposed;
     internal Registration? Find(string id) { lock (_sync) return _templates.GetValueOrDefault(id); }
     internal void Update(string id, object owner, Func<JsonElement, RenderFragment> render)
     {
@@ -28,6 +29,7 @@ public sealed class BrowserTemplateRegistry : IDisposable
         Registration registration;
         lock (_sync)
         {
+            ObjectDisposedException.ThrowIf(_disposed, this);
             if (_templates.TryGetValue(id, out registration!))
             {
                 if (!ReferenceEquals(registration.Owner, owner)) throw new InvalidOperationException($"A different template already owns '{id}'. Use a unique ID for each component instance.");
@@ -50,7 +52,7 @@ public sealed class BrowserTemplateRegistry : IDisposable
     public void Dispose()
     {
         Registration[] registrations;
-        lock (_sync) { registrations = _templates.Values.ToArray(); _templates.Clear(); }
+        lock (_sync) { if (_disposed) return; _disposed = true; registrations = _templates.Values.ToArray(); _templates.Clear(); }
         foreach (var registration in registrations) registration.Stop();
     }
 }
@@ -88,6 +90,8 @@ public sealed class BrowserTemplateOutlet : ComponentBase, IAsyncDisposable
     private string? _loadedContext;
     private int _loadedVersion = -1;
     private bool _disposed, _loading;
+    private Task? _loadTask, _disposal;
+    private readonly object _disposalSync = new();
     protected override void OnParametersSet()
     {
         var next = Registry.Find(TemplateId) ?? throw new InvalidOperationException($"No Razor template is registered as '{TemplateId}' in this circuit.");
@@ -100,13 +104,18 @@ public sealed class BrowserTemplateOutlet : ComponentBase, IAsyncDisposable
     {
         if (_loadedContext is not null && _registration?.Render is { } render) builder.AddContent(0, render(_context));
     }
-    protected override async Task OnAfterRenderAsync(bool firstRender)
+    protected override Task OnAfterRenderAsync(bool firstRender)
     {
-        if (_disposed || _loading || (_loadedContext == ContextId && _loadedVersion == Version)) return;
+        if (_disposed || _loading || (_loadedContext == ContextId && _loadedVersion == Version)) return Task.CompletedTask;
         _loading = true;
+        return _loadTask = LoadContextAsync();
+    }
+    private async Task LoadContextAsync()
+    {
         try
         {
             _module ??= await JS.InvokeAsync<IJSObjectReference>("import", "./_content/Dockyard.Blazor/templates.js");
+            if (_disposed) return;
             var id = ContextId; var version = Version;
             await using var reference = await _module.InvokeAsync<IJSStreamReference>("readContext", id);
             await using var input = await reference.OpenReadStreamAsync(64 * 1024 * 1024);
@@ -120,11 +129,20 @@ public sealed class BrowserTemplateOutlet : ComponentBase, IAsyncDisposable
         finally { _loading = false; }
         if (!_disposed) StateHasChanged();
     }
-    public async ValueTask DisposeAsync()
+    public ValueTask DisposeAsync()
+    {
+        lock (_disposalSync) return new ValueTask(_disposal ??= DisposeOutletAsync());
+    }
+    private async Task DisposeOutletAsync()
     {
         _disposed = true;
         if (_registration is not null) _registration.Changed -= Refresh;
-        if (_module is not null) { try { await _module.DisposeAsync(); } catch (JSDisconnectedException) { } }
+        try { if (_loadTask is not null) await _loadTask; }
+        finally
+        {
+            // Import can finish after removal. Await it before dropping its JS handle.
+            if (_module is not null) { try { await _module.DisposeAsync(); } catch (JSDisconnectedException) { } }
+        }
     }
 }
 

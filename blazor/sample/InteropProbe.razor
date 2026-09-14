@@ -8,12 +8,15 @@
 <section aria-label="Blazor integration verification">
     <h2>Razor templates and streamed interop</h2>
     <BrowserTemplate TItem="JsonElement" Id="@_templateId" Context="context">
-        <p>@context.GetProperty("label").GetString()</p>
+        <p id="template-context-label">@context.GetProperty("label").GetString()</p>
         <button id="template-counter" @onclick="Increment">Razor count: @_count</button>
         <input id="template-input" aria-label="Template input" @bind="_text" />
         <output id="template-value">@_text</output>
     </BrowserTemplate>
     <div @ref="_host"></div>
+    <button id="template-move" @onclick="MoveTemplate" disabled="@(_mount is null)">Move template</button>
+    <button id="template-update" @onclick="UpdateTemplate" disabled="@(_mount is null)">Update template context</button>
+    <button id="template-recreate" @onclick="RecreateTemplate" disabled="@(_mount is null)">Recreate template</button>
     <output id="interop-status">@_status</output>
 </section>
 @code {
@@ -25,6 +28,9 @@
     private string _text = "Initial", _status = "Loading";
     private bool _disposed;
     private void Increment() => _count++;
+    private Task MoveTemplate() => _module!.CallVoidAsync(_mount!, "Move").AsTask();
+    private Task UpdateTemplate() => _module!.CallVoidAsync(_mount!, "Update").AsTask();
+    private Task RecreateTemplate() => _module!.CallVoidAsync(_mount!, "Recreate").AsTask();
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (!firstRender || _disposed) return;

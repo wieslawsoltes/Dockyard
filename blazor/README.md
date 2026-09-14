@@ -1,6 +1,6 @@
 # Dockyard.Blazor
 
-A .NET 8/.NET 10 Razor class library wrapping the actual Dockyard browser engine. Install `Dockyard.Blazor` version `0.2.1`; runtime JavaScript and styles are included as local static web assets.
+A .NET 8/.NET 10 Razor class library wrapping the actual Dockyard browser engine. Install `Dockyard.Blazor` version `0.2.2`; runtime JavaScript and styles are included as local static web assets.
 
 ## Components
 
@@ -27,3 +27,7 @@ A .NET 8/.NET 10 Razor class library wrapping the actual Dockyard browser engine
 Read [INTEGRATION.md](INTEGRATION.md) for hosting registration, templates, data/streaming protocols, returned function references, ownership and publication. Components initialize after interactive rendering and support both WebAssembly and Server; static SSR only renders a host. NuGet consumers do not need npm or a CDN.
 
 CI restores the produced package into both sample hosts for net8.0 and net10.0, tests actual native operations, managed lifecycle, large JSON/binary transfer, Razor input binding and remounting. It does not qualify physical GPUs, hybrid WebViews or every browser. Native compatibility limits still apply.
+
+## Lifecycle in 0.2.2
+
+`IsReady` and `IsDisposed` expose visual lifecycle state. Concurrent disposal awaits one cleanup operation and retains its failure. Queued callbacks stop after removal; template roots clean up late imports and creation. Factories return awaitable disposal promises and retain roots during synchronous DOM movement. The shared sample tests movement, context updates and recreation in both hosts. Store durable state outside recycled cell components.

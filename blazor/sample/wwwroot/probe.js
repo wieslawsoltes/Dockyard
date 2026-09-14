@@ -11,8 +11,16 @@ export class Probe {
 }
 export function MountTemplate(host, factory) {
   const root = host.shadowRoot ?? host.attachShadow({ mode: 'open' });
-  const element = factory({ label: 'Native template context' }); root.append(element);
-  return { Dispose() { factory.dispose(element); } };
+  const left = document.createElement('div'), right = document.createElement('div');
+  root.append(left, right);
+  let element = factory({ label: 'Native template context' }); left.append(element);
+  return {
+    Move() { (element.parentElement === left ? right : left).append(element); },
+    Update() { return factory.update(element, { label: 'Updated native template context' }); },
+    async Recreate() { await factory.dispose(element); element = factory({ label: 'Recreated native template context' }); left.append(element); },
+    async Dispose() { try { await factory.dispose(element); } finally { left.remove(); right.remove(); } }
+  };
 }
+
 export function CreateFunction(increment) { return value => value + increment; }
 export function ApplyFunction(fn, value) { return fn(value); }

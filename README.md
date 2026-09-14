@@ -20,7 +20,7 @@ The [complete JavaScript guide](README.web.md) preserves the existing API exampl
 ## Blazor
 
 ```sh
-dotnet add package Dockyard.Blazor --version 0.2.1
+dotnet add package Dockyard.Blazor --version 0.2.2
 ```
 
 The .NET 8/.NET 10 Razor class library supports interactive WebAssembly and Interactive Server, with local JavaScript/CSS assets and no consumer npm/CDN dependency. It includes `DockingManager`, typed `DockContent`, document/tool operations, layout persistence, events and real Razor pane templates.

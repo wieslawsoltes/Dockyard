@@ -1,5 +1,6 @@
 import { snapshot } from './interop.js';
 import { stream, jsonText, maximumBytes } from './transport.js';
+import { TemplateLifetime } from './template-lifetime.js';
 const contexts = new Map();
 const tag = 'Dockyard'.toLowerCase() + '-razor-template';
 let nextId = 0;
@@ -23,7 +24,23 @@ function register() {
   if (customElements.get(tag)) return;
   class RazorTemplateElement extends HTMLElement {
     constructor() {
-      super(); this.contextId = `template-${++nextId}`; this.version = 0; this.pending = Promise.resolve();
+      super(); this.contextId = `template-${++nextId}`; this.version = 0;
+      this.lifetime = new TemplateLifetime({
+        connected: () => this.isConnected,
+        create: async () => {
+          if (!globalThis.Blazor?.rootComponents?.add) throw new Error('Register the package JS roots on the Blazor host before using Razor templates.');
+          contexts.set(this.contextId, this.text);
+          return Blazor.rootComponents.add(this, this.descriptor.component, this.parameters());
+        },
+        update: root => { contexts.set(this.contextId, this.text); return root.setParameters(this.parameters()); },
+        clear: () => contexts.delete(this.contextId),
+        report: error => {
+          if (!this.isConnected) return;
+          this.setAttribute('data-template-error', String(error.message ?? error));
+          this.dispatchEvent(new CustomEvent('blazor-template-error', { detail: { message: String(error.message ?? error) }, bubbles: true, composed: true }));
+          console.error('Razor template failed', error);
+        }
+      });
       // Blazor finds handlers using composedPath, but builds ChangeEventArgs from target.
       // Preserve the originating input instead of the shadow host exposed at Document.
       for (const type of ['input', 'change', 'submit', 'reset']) this.addEventListener(type, event => {
@@ -42,34 +59,16 @@ function register() {
       }, true);
     }
     configure(descriptor, value) { this.descriptor = descriptor; this.update(value); }
-    update(value) { this.text = contextOf(value, this.descriptor); this.version++; this.schedule(); }
-    connectedCallback() { this.schedule(); }
-    disconnectedCallback() { queueMicrotask(() => { if (!this.isConnected) this.schedule(); }); }
-    schedule() {
-      this.pending = this.pending.then(() => this.synchronize()).catch(error => {
-        if (!this.isConnected) return;
-        this.setAttribute('data-template-error', String(error.message ?? error));
-        this.dispatchEvent(new CustomEvent('blazor-template-error', { detail: { message: String(error.message ?? error) }, bubbles: true, composed: true }));
-        console.error('Razor template failed', error);
-      });
+    parameters() { return { templateId: this.descriptor.id, contextId: this.contextId, version: this.version }; }
+    update(value) {
+      if (this.lifetime.disposed) throw new Error('The Razor template has been disposed.');
+      this.text = contextOf(value, this.descriptor); this.version++;
+      return this.lifetime.schedule(this.version);
     }
-    async synchronize() {
-      if (!this.isConnected) {
-        const root = this.root; this.root = null;
-        try { if (root) await root.dispose(); } finally { contexts.delete(this.contextId); }
-        return;
-      }
-      if (!this.descriptor) return;
-      contexts.set(this.contextId, this.text);
-      const parameters = { templateId: this.descriptor.id, contextId: this.contextId, version: this.version };
-      if (!this.root) {
-        if (!globalThis.Blazor?.rootComponents?.add) throw new Error('Enable the package JS-root registration on the Blazor host before using Razor templates.');
-        this.root = await Blazor.rootComponents.add(this, this.descriptor.component, parameters);
-      } else if (this.appliedVersion !== this.version) await this.root.setParameters(parameters);
-      this.appliedVersion = parameters.version;
-      this.removeAttribute('data-template-error');
-      if (!this.isConnected) await this.synchronize();
-    }
+    connectedCallback() { if (this.descriptor) this.lifetime.schedule(this.version); }
+    disconnectedCallback() { queueMicrotask(() => this.lifetime.schedule(this.version)); }
+    dispose() { const pending = this.lifetime.dispose(); this.remove(); return pending; }
+
   }
   customElements.define(tag, RazorTemplateElement);
 }
@@ -82,7 +81,7 @@ export function createFactory(descriptor) {
   };
   factory.templateKey = JSON.stringify(descriptor);
   factory.update = (host, value) => host.update(value);
-  factory.dispose = host => { host.remove(); host.schedule(); };
+  factory.dispose = host => host.dispose();
   return factory;
 }
 export function readContext(id) {

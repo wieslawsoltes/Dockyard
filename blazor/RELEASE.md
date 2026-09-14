@@ -1,11 +1,11 @@
-# Blazor 0.2.1 — interop lifetime and identity corrections
+# Dockyard.Blazor 0.2.2
 
-- Preserve shared and cyclic native argument graphs without recursive stack overflow or mutation.
-- Await asynchronous listener cleanup, and continue cleanup after an individual listener fails.
-- Make concurrent native and managed module/subscription disposal calls await the same completion fence; repeated failed disposal retains its error.
-- Resolve native callable handles consistently for property access, method invocation and disposal.
-- Cancel initialization waits without cancelling another caller's shared initialization; pre-cancelled calls allocate nothing.
-- Prevent late constructors and mounts from starting after their owning session is disposed.
-- Add `CallFunctionJsonAsync<T>` for complete streamed callable results.
+This release hardens the visual component and dynamic Razor root lifetimes while retaining all native docking and advanced interop APIs.
 
-Validation includes regression tests, package inspection, managed lifecycle tests and package-restored .NET 8/.NET 10 WebAssembly/Interactive Server browser consumers. Existing engine behavior and compatibility limits are unchanged.
+- Concurrent visual component disposal shares one completion task, releases all handles even after native cleanup failure, preserves the failure for repeated callers, and suppresses callbacks queued before removal.
+- Template removal waits for an in-flight module import before releasing its handle. Circuit registries reject new registrations after disposal.
+- Dynamic template factories return an awaitable disposal fence, coalesce rapid updates, preserve roots during same-turn DOM movement, and release late-created roots and context records.
+- `BrowserComponent.IsReady` and `IsDisposed` expose lifecycle state.
+- Eight new JavaScript lifecycle regressions, managed visual/template lifecycle checks and actual-package browser tests cover moving, updating and recreating real Razor templates in WebAssembly and Interactive Server.
+
+The package targets .NET 8 and .NET 10 and includes local JavaScript/styles, symbols, and runnable sample artifacts. Publication remains gated on validation and complete public NuGet payload comparison. Desktop API, physical GPU, all-browser and WebView qualification are not claimed.

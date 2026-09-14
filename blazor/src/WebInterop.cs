@@ -175,7 +175,12 @@ public abstract class BrowserComponent : ComponentBase, IAsyncDisposable
     private string[] _eventNames = [];
     private long _revision;
     private bool _disposed;
-    private int _disposeStarted;
+    private readonly object _disposalSync = new();
+    private Task? _componentDisposal;
+    /// <summary>True once interactive initialization completes and until disposal starts.</summary>
+    public bool IsReady => !_disposed && Control is not null && _last is not null;
+    /// <summary>Disposal starts immediately; concurrent callers await the same cleanup task.</summary>
+    public bool IsDisposed => _disposed;
     protected override void BuildRenderTree(RenderTreeBuilder builder)
     {
         builder.OpenElement(0, HostTag); builder.AddMultipleAttributes(1, AdditionalAttributes);
@@ -201,30 +206,43 @@ public abstract class BrowserComponent : ComponentBase, IAsyncDisposable
                 _events.Clear();
                 foreach (var name in names)
                 {
-                    Task Handle(JsonElement data) => _disposed ? Task.CompletedTask : base.InvokeAsync(() => OnBrowserEventAsync(new BrowserEvent(name, data)));
+                    Task Handle(JsonElement data) => _disposed ? Task.CompletedTask : base.InvokeAsync(() => _disposed ? Task.CompletedTask : OnBrowserEventAsync(new BrowserEvent(name, data)));
                     _events.Add(IsJsonEvent(name) ? await Module.SubscribeJsonAsync<JsonElement>(Control, name, Handle) : await Module.SubscribeAsync(Control, name, Handle));
                 }
                 _eventNames = names;
             }
         }
+        catch (JSDisconnectedException) when (_disposed) { }
+        catch (JSException) when (_disposed) { }
+        catch (ObjectDisposedException) when (_disposed) { }
         finally { _gate.Release(); }
         if (ready && !_disposed) await OnBrowserReadyAsync(Control!);
     }
-    public ValueTask<T> InvokeAsync<T>(string method, params object?[] arguments) => Module is not null && Control is not null ? Module.CallAsync<T>(Control, method, arguments) : ValueTask.FromException<T>(new InvalidOperationException("Wait for Ready before accessing the control."));
-    public ValueTask<T> InvokeJsonAsync<T>(string method, params object?[] arguments) => Module is not null && Control is not null ? Module.CallJsonAsync<T>(Control, method, arguments) : ValueTask.FromException<T>(new InvalidOperationException("Wait for Ready before accessing the control."));
-    public ValueTask<byte[]> InvokeBytesAsync(string method, params object?[] arguments) => Module is not null && Control is not null ? Module.CallBytesAsync(Control, method, arguments) : ValueTask.FromException<byte[]>(new InvalidOperationException("Wait for Ready before accessing the control."));
-    public ValueTask InvokeVoidAsync(string method, params object?[] arguments) => Module is not null && Control is not null ? Module.CallVoidAsync(Control, method, arguments) : ValueTask.FromException(new InvalidOperationException("Wait for Ready before accessing the control."));
-    public virtual async ValueTask DisposeAsync()
+    public ValueTask<T> InvokeAsync<T>(string method, params object?[] arguments) => !_disposed && Module is not null && Control is not null ? Module.CallAsync<T>(Control, method, arguments) : ValueTask.FromException<T>(new InvalidOperationException("Wait for Ready before accessing the control."));
+    public ValueTask<T> InvokeJsonAsync<T>(string method, params object?[] arguments) => !_disposed && Module is not null && Control is not null ? Module.CallJsonAsync<T>(Control, method, arguments) : ValueTask.FromException<T>(new InvalidOperationException("Wait for Ready before accessing the control."));
+    public ValueTask<byte[]> InvokeBytesAsync(string method, params object?[] arguments) => !_disposed && Module is not null && Control is not null ? Module.CallBytesAsync(Control, method, arguments) : ValueTask.FromException<byte[]>(new InvalidOperationException("Wait for Ready before accessing the control."));
+    public ValueTask InvokeVoidAsync(string method, params object?[] arguments) => !_disposed && Module is not null && Control is not null ? Module.CallVoidAsync(Control, method, arguments) : ValueTask.FromException(new InvalidOperationException("Wait for Ready before accessing the control."));
+    public virtual ValueTask DisposeAsync()
     {
-        if (Interlocked.Exchange(ref _disposeStarted, 1) != 0) return;
-        _disposed = true; await _gate.WaitAsync();
-        try { if (Module is not null) await Module.DisposeAsync(); }
-        finally
+        lock (_disposalSync) return new ValueTask(_componentDisposal ??= DisposeComponentAsync());
+    }
+    private async Task DisposeComponentAsync()
+    {
+        _disposed = true;
+        await _gate.WaitAsync();
+        var errors = new List<Exception>();
+        try
         {
-            _events.Clear();
-            try { if (Control is not null) await Control.DisposeAsync(); } catch (JSDisconnectedException) { }
-            _gate.Release();
+            try { if (Module is not null) await Module.DisposeAsync(); }
+            catch (JSDisconnectedException) { }
+            catch (Exception error) { errors.Add(error); }
+            // The control handle must be released even when native cleanup fails.
+            try { if (Control is not null) await Control.DisposeAsync(); }
+            catch (JSDisconnectedException) { }
+            catch (Exception error) { errors.Add(error); }
         }
+        finally { _events.Clear(); Control = null; _gate.Release(); }
+        if (errors.Count != 0) throw new AggregateException("Browser component cleanup failed.", errors);
     }
 }
 

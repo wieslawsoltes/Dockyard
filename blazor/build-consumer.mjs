@@ -12,6 +12,8 @@ const project = config.project ?? `blazor/src/${name}.Blazor.csproj`;
 function write(path, text) { mkdirSync(dirname(resolve(root, path)), { recursive: true }); writeFileSync(resolve(root, path), text); }
 function source(path) { return readFileSync(resolve(common, path), 'utf8').replaceAll('Dockyard', name); }
 const copies = {
+  'src/wwwroot/template-lifetime.js': `${out}/template-lifetime.js`,
+  'tests/template-lifetime.test.mjs': 'blazor/tests/template-lifetime.test.mjs',
   'tests/lifetime-regression.test.mjs': 'blazor/tests/lifetime-regression.test.mjs',
   'src/References.cs': 'blazor/src/References.g.cs',
   'src/wwwroot/references.js': `${out}/references.js`,
