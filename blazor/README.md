@@ -1,6 +1,6 @@
 # Dockyard.Blazor
 
-A .NET 8/.NET 10 Razor class library wrapping the actual Dockyard browser engine. Install `Dockyard.Blazor` version `0.2.0`; runtime JavaScript and styles are included as local static web assets.
+A .NET 8/.NET 10 Razor class library wrapping the actual Dockyard browser engine. Install `Dockyard.Blazor` version `0.2.1`; runtime JavaScript and styles are included as local static web assets.
 
 ## Components
 
