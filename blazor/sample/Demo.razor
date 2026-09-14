@@ -1,0 +1,47 @@
+@page "/"
+@namespace DockyardBlazorSample
+@using Dockyard.Blazor
+@using System.Text.Json
+@using Microsoft.AspNetCore.Components
+@using Microsoft.JSInterop
+<main data-native-template-test="true">
+    <h1>Dockyard + Blazor</h1>
+    <p>A native docking workspace with real Razor pane content, running through the NuGet component.</p>
+    <button id="action" @onclick="AddDocument" disabled="@(!_ready)">Add document</button>
+    <button @onclick="ToggleTheme">Switch theme</button>
+    <button id="toggle" @onclick="Toggle">@(_show ? "Unmount" : "Mount")</button>
+    <BrowserTemplate TItem="JsonElement" Id="@_paneTemplate" Context="pane">
+        <h3>@pane.GetProperty("Title").GetString()</h3>
+        <button id="pane-counter" class="native-template-check" @onclick="Increment">Pane count: @_paneCount</button>
+        <p>Float and dock this pane; its Razor content remains interactive.</p>
+    </BrowserTemplate>
+    @if (_show) { <DockingManager @ref="_dock" Theme="@_theme" Ready="Initialize" Changed="OnChanged" /> }
+    <output id="status">@_status</output><output id="result">@_result</output>
+    <output id="native-template-result">@(_paneCount > 0 ? "Passed" : "Waiting")</output>
+    <p>Native event notifications: @_events</p>
+    <InteropProbe />
+</main>
+@code {
+    private readonly string _paneTemplate = Guid.NewGuid().ToString("N");
+    private DockingManager _dock = default!;
+    private bool _show = true, _ready;
+    private int _count, _events, _paneCount;
+    private string _theme = "light", _status = "Loading", _result = "";
+    private void Increment() => _paneCount++;
+    private async Task Initialize(IJSObjectReference control)
+    {
+        await using var document = await _dock.AddDocumentAsync(new DockContent { ContentId = "welcome", Title = "Welcome", Content = BrowserFunction.RazorTemplate(_paneTemplate, fields: ["Title", "ContentId"]) });
+        await using var tool = await _dock.AddAnchorableAsync(new DockContent { ContentId = "explorer", Title = "Explorer", Content = "A tool pane created from C#." });
+        _ready = true; _status = "Ready";
+    }
+    private async Task AddDocument()
+    {
+        await using var document = await _dock.AddDocumentAsync(new DockContent { ContentId = $"document-{++_count}", Title = $"Document {_count}", Content = "Created by a Blazor event handler." });
+        var saved = await _dock.SaveLayoutAsync();
+        if (!saved.Contains($"document-{_count}")) throw new InvalidOperationException("The native layout did not contain the new document.");
+        _result = "Passed";
+    }
+    private void ToggleTheme() => _theme = _theme == "light" ? "dark" : "light";
+    private void OnChanged(BrowserEvent args) => _events++;
+    private void Toggle() { _show = !_show; _ready = false; _status = _show ? "Loading" : "Unmounted"; _result = ""; }
+}

@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk.Razor">
+  <PropertyGroup>
+    <TargetFrameworks>net8.0;net10.0</TargetFrameworks>
+    <Nullable>enable</Nullable><ImplicitUsings>enable</ImplicitUsings><LangVersion>latest</LangVersion>
+    <RootNamespace>Dockyard.Blazor</RootNamespace><AssemblyName>Dockyard.Blazor</AssemblyName>
+    <PackageId>Dockyard.Blazor</PackageId><Authors>Wiesław Šoltés</Authors>
+    <Description>Blazor components and browser-engine interop for Dockyard, with self-contained static web assets.</Description>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression><PackageReadmeFile>README.md</PackageReadmeFile>
+    <RepositoryUrl>https://github.com/wieslawsoltes/Dockyard</RepositoryUrl><RepositoryType>git</RepositoryType>
+    <PackageProjectUrl>https://github.com/wieslawsoltes/Dockyard/tree/main/blazor</PackageProjectUrl>
+    <PackageTags>blazor;webassembly;components;docking</PackageTags>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile><NoWarn>$(NoWarn);CS1591</NoWarn>
+    <IncludeSymbols>true</IncludeSymbols><SymbolPackageFormat>snupkg</SymbolPackageFormat>
+    <ContinuousIntegrationBuild Condition="'$(CI)' == 'true'">true</ContinuousIntegrationBuild>
+  </PropertyGroup>
+  <Import Project="../Version.props" />
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.Components.Web" Version="$(BlazorFrameworkVersion)" />
+    <None Include="../README.md" Pack="true" PackagePath="/" />
+    <None Include="../../LICENSE" Pack="true" PackagePath="/" />
+  </ItemGroup>
+  <Target Name="VerifyBrowserAssets" BeforeTargets="PrepareForBuild">
+    <Error Condition="!Exists('$(MSBuildProjectDirectory)/wwwroot/library.js')" Text="Run npm ci, npm run build, and node blazor/build.mjs before building this source project. NuGet consumers do not need Node." />
+  </Target>
+</Project>

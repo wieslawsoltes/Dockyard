@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk.BlazorWebAssembly">
+  <PropertyGroup><TargetFramework Condition="'$(TargetFramework)' == ''">net8.0</TargetFramework><Nullable>enable</Nullable><ImplicitUsings>enable</ImplicitUsings><RootNamespace>Dockyard.Blazor.Sample</RootNamespace></PropertyGroup>
+  <Import Project="../Version.props" />
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly" Version="$(BlazorFrameworkVersion)" />
+    <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly.DevServer" Version="$(BlazorFrameworkVersion)" PrivateAssets="all" />
+    <ProjectReference Include="../src/Dockyard.Blazor.csproj" Condition="'$(UsePackage)' != 'true'" />
+    <PackageReference Include="Dockyard.Blazor" Version="$(Version)" Condition="'$(UsePackage)' == 'true'" />
+  </ItemGroup>
+</Project>

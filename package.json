@@ -7,26 +7,12 @@
   "module": "./src/index.js",
   "types": "./src/index.d.ts",
   "exports": {
-    ".": {
-      "types": "./src/index.d.ts",
-      "import": "./src/index.js"
-    },
-    "./model": {
-      "types": "./src/model.d.ts",
-      "import": "./src/model.js"
-    },
+    ".": {"types": "./src/index.d.ts", "import": "./src/index.js"},
+    "./model": {"types": "./src/model.d.ts", "import": "./src/model.js"},
     "./styles.css": "./src/avalondock.css",
     "./package.json": "./package.json"
   },
-  "files": [
-    "src",
-    "dist",
-    "docs",
-    "sample/minimal.html",
-    "README.md",
-    "LICENSE",
-    "NOTICE.md"
-  ],
+  "files": ["src", "dist", "docs", "sample/minimal.html", "README.md", "README.web.md", "blazor/README.md", "blazor/INTEGRATION.md", "LICENSE", "NOTICE.md"],
   "scripts": {
     "build": "node scripts/build.mjs",
     "test": "node --test tests/*.test.mjs",
@@ -39,36 +25,12 @@
     "check:all": "npm run build && npm test && npm run check && npm run api"
   },
   "license": "MIT",
-  "engines": {
-    "node": ">=22"
-  },
-  "sideEffects": [
-    "./src/avalondock.css",
-    "./src/web-component.js",
-    "./src/index.js",
-    "./dist/avalondock.js"
-  ],
-  "devDependencies": {
-    "typescript": "5.8.3"
-  },
-  "publishConfig": {
-    "access": "public",
-    "provenance": true
-  },
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/wieslawsoltes/Dockyard.git"
-  },
+  "engines": {"node": ">=22"},
+  "sideEffects": ["./src/avalondock.css", "./src/web-component.js", "./src/index.js", "./dist/avalondock.js"],
+  "devDependencies": {"typescript": "5.8.3"},
+  "publishConfig": {"access": "public", "provenance": true},
+  "repository": {"type": "git", "url": "https://github.com/wieslawsoltes/Dockyard.git"},
   "homepage": "https://wieslawsoltes.github.io/Dockyard/",
-  "bugs": {
-    "url": "https://github.com/wieslawsoltes/Dockyard/issues"
-  },
-  "keywords": [
-    "docking",
-    "avalondock",
-    "dockyard",
-    "web-components",
-    "layout",
-    "mvvm"
-  ]
+  "bugs": {"url": "https://github.com/wieslawsoltes/Dockyard/issues"},
+  "keywords": ["docking", "avalondock", "dockyard", "web-components", "layout", "mvvm"]
 }

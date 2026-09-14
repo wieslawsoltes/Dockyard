@@ -1,0 +1,53 @@
+name: Blazor source audit
+on:
+  pull_request:
+    paths: ['.github/workflows/blazor-source-audit.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  sources:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Capture current Blazor PR sources and immutable revisions
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p audit/sources audit/pulls
+          for entry in Dockyard:2 TreeDataGridWeb:2 DynamicDataWeb:4 RibbonWeb:3 SkiaSharpWeb:4 ReactiveWeb:10 RBushWeb:2 QuikGraphWeb:7 RichTextWeb:12; do
+            repo=${entry%:*}; pr=${entry#*:}
+            gh api "repos/wieslawsoltes/$repo/pulls/$pr" > "audit/pulls/$repo.json"
+            sha=$(jq -r .head.sha "audit/pulls/$repo.json")
+            [[ "$sha" =~ ^[0-9a-f]{40}$ ]]
+            mkdir -p "checkout/$repo" "audit/sources/$repo"
+            git -C "checkout/$repo" init -q
+            git -C "checkout/$repo" fetch -q --depth=1 "https://github.com/wieslawsoltes/$repo.git" "$sha"
+            git -C "checkout/$repo" checkout -q --detach FETCH_HEAD
+            test "$(git -C "checkout/$repo" rev-parse HEAD)" = "$sha"
+            python3 - "$repo" <<'PY'
+          import pathlib, shutil, subprocess, sys
+          repo = sys.argv[1]
+          root = pathlib.Path('checkout') / repo
+          out = pathlib.Path('audit/sources') / repo
+          paths = subprocess.check_output(['git', '-C', str(root), 'ls-files', '-z']).decode().split('\0')
+          extensions = {'.js','.mjs','.cjs','.ts','.json','.cs','.csproj','.razor','.props','.targets','.py','.md','.yml','.yaml','.html','.css','.txt','.sln','.slnx'}
+          for item in paths:
+              if not item: continue
+              path = pathlib.Path(item)
+              if path.suffix not in extensions and path.name not in {'.gitignore','.gitmodules','LICENSE','NOTICE'}: continue
+              source = root / path
+              if not source.is_file() or source.is_symlink() or source.stat().st_size > 5000000: continue
+              destination = out / path
+              destination.parent.mkdir(parents=True, exist_ok=True)
+              shutil.copyfile(source, destination)
+          PY
+          done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: blazor-reviewed-sources
+          path: audit
+          retention-days: 7
+          if-no-files-found: error

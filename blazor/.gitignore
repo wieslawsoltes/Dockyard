@@ -1,0 +1,7 @@
+**/bin/
+**/obj/
+src/wwwroot/library.js
+src/wwwroot/styles.css
+src/wwwroot/licenses/
+src/wwwroot/engine/
+artifacts/

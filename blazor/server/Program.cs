@@ -1,0 +1,11 @@
+using global::Dockyard.Blazor;
+using global::Dockyard.Blazor.Server;
+var builder = WebApplication.CreateBuilder(args);
+builder.Services.AddDockyardBlazor();
+builder.Services.AddRazorComponents().AddInteractiveServerComponents(options => options.RootComponents.RegisterDockyardBlazor());
+var app = builder.Build();
+app.UsePathBase("/probe");
+app.UseStaticFiles();
+app.UseAntiforgery();
+app.MapRazorComponents<App>().AddInteractiveServerRenderMode();
+app.Run();
