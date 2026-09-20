@@ -17,6 +17,16 @@ npm install @wieslawsoltes/dockyard
 
 The [complete JavaScript guide](README.web.md) preserves the existing API examples, architecture, tests, license notices and native-engine compatibility boundaries. [Open the web demo](https://wieslawsoltes.github.io/Dockyard/).
 
+### Browser windows (JavaScript 0.2.0)
+
+Both real browser windows and in-page floating use the same live layout model. Set
+`FloatingWindowMode: 'BrowserWindow'` on the manager, override individual content,
+or call `FloatInBrowserWindow()` / `FloatInPage()` explicitly. Existing `.Float()`
+and `.Dock()` calls remain supported; in-page floating is still the default.
+
+[Multi-window example](https://wieslawsoltes.github.io/Dockyard/sample/multi-window.html)
+· [Hosting API, lifecycle, persistence and browser boundaries](docs/BROWSER-WINDOWS.md).
+
 ## Blazor
 
 ```sh

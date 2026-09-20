@@ -15,7 +15,7 @@
       <button data-menu="File">File</button><button data-menu="Edit">Edit</button><button data-menu="View">View</button><button data-menu="Layout">Layout</button><button data-menu="Window">Window</button><button data-menu="Help">Help</button>
     </nav>
     <button class="command-trigger" id="command-trigger"><span class="search-glyph">⌕</span><span>Search commands</span><kbd>Ctrl K</kbd></button>
-    <span class="version-badge">0.1.0</span><button class="avatar" id="about-button" title="About the component">DK</button>
+    <span class="version-badge">0.2.0</span><button class="avatar" id="about-button" title="About the component">DK</button>
   </header>
   <div class="app-toolbar">
     <div class="toolbar-context"><span class="workspace-symbol">▦</span><strong>Component playground</strong><span class="slash">/</span><span id="preset-caption">Development</span></div>
@@ -24,6 +24,9 @@
     <button class="tool-button icon-only" id="reset-layout" title="Reset workspace" aria-label="Reset workspace">↺</button>
     <button class="tool-button icon-only" id="undo-layout" title="Undo layout change" aria-label="Undo layout change">↶</button><button class="tool-button icon-only" id="redo-layout" title="Redo layout change" aria-label="Redo layout change">↷</button>
     <div class="toolbar-spacer"></div>
+    <label class="preset-label"><span>Floating</span><select id="floating-mode" aria-label="Default floating host"><option value="InPage">In-page</option><option value="BrowserWindow">Browser window</option></select></label>
+    <button class="tool-button" id="float-browser" title="Float the active content in a real browser window">↗ <span>Browser</span></button>
+    <button class="tool-button" id="restore-windows" title="Resume saved browser windows; popup permission may be needed" hidden>↗ Restore windows</button>
     <label class="theme-label"><span id="theme-symbol">◐</span><select id="theme-select" aria-label="Theme"><option value="dark">Dark</option><option value="light">Light</option><option value="aero">Aero</option><option value="vs2010">VS2010</option><option value="metro">Metro</option><option value="contrast">High contrast</option></select></label>
     <button class="tool-button" id="export-layout">↓ <span>Export layout</span></button>
     <button class="primary-button" id="new-document">＋ <span>New document</span></button>

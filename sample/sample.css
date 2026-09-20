@@ -42,3 +42,7 @@ button,input,select,textarea{font:inherit}button{cursor:pointer;color:inherit}bu
 @media(max-width:1250px){.brand-description,.toolbar-context #preset-caption,.toolbar-context .slash{display:none}.app-header{gap:13px}.command-trigger{max-width:210px}.welcome{padding:25px}.welcome h1{font-size:28px}.status-hint{display:none}}
 @media(max-width:980px){.app-menubar button:nth-child(n+4){display:none}.toolbar-context{display:none}.toolbar-divider{display:none}.command-trigger{width:auto;flex:1}.welcome{padding:20px}.feature-grid{gap:8px}.feature-card{padding:12px;min-height:95px}.app-statusbar{gap:9px}.version-badge{display:none}}
 @media(max-width:650px){.brand strong>span,.brand-description,.app-menubar,.command-trigger>span:nth-child(2),.command-trigger kbd,.preset-label,.theme-label>span,.toolbar-context{display:none}.command-trigger{max-width:34px}.app-header{padding:0 10px;gap:10px}.tool-button span{display:none}.activity-bar{width:37px;min-width:37px}.activity{width:29px}.feature-grid{grid-template-columns:1fr}.welcome h1{font-size:25px}.status-render,#status-save{display:none}.app-toolbar{padding:0 8px;gap:4px}.theme-label{margin:0}}
+
+/* Hosting controls stay compact; the Window menu offers every command too. */
+@media(max-width:1200px){.toolbar-context{display:none}.app-toolbar{gap:6px}}
+@media(max-width:760px){#float-browser span,.app-toolbar .preset-label>span{display:none}#restore-windows{font-size:11px}.app-toolbar{overflow-x:auto}}

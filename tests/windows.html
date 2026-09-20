@@ -1,0 +1,28 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Dockyard browser-window tests</title>
+<link rel="stylesheet" href="../dist/avalondock.css"><style>
+html,body{margin:0;height:100%;font:14px system-ui}#host{height:calc(100% - 36px)}textarea{width:100%;height:90%;box-sizing:border-box}.probe{color:rgb(21, 112, 171)}button{margin:3px}
+</style></head><body><button id="open">Float active in browser window</button><button id="float">Float active</button><main id="host"></main>
+<script src="../dist/avalondock.js"></script><script>
+const A = AvalonDock;
+window.editor = document.createElement('textarea'); editor.setAttribute('aria-label', 'Editor A'); editor.value='original';
+window.counter = 0; editor.addEventListener('input', () => counter++);
+window.b = document.createElement('textarea'); b.setAttribute('aria-label','Editor B'); b.value='beta';
+window.a = new A.LayoutDocument({ContentId:'a',Title:'Alpha',Content:editor});
+window.docB = new A.LayoutDocument({ContentId:'b',Title:'Beta',Content:b});
+window.docC = new A.LayoutDocument({ContentId:'c',Title:'Gamma',Content:'Gamma body'});
+window.docs = new A.LayoutDocumentPane({Id:'docs',Children:[a,docB,docC]});
+window.toolA = new A.LayoutAnchorable({ContentId:'x',Title:'Explorer',Content:'Explorer body'});
+window.toolB = new A.LayoutAnchorable({ContentId:'y',Title:'Properties',Content:'Properties body'});
+window.tools1 = new A.LayoutAnchorablePane({Id:'tools1',Children:[toolA]});
+window.tools2 = new A.LayoutAnchorablePane({Id:'tools2',Children:[toolB]});
+window.tools = new A.LayoutAnchorablePaneGroup({Id:'tools',Orientation:'Vertical',DockWidth:250,Children:[tools1,tools2]});
+window.events=[];
+window.manager=new A.DockingManager(document.getElementById('host'), {AllowMixedOrientation:true,Layout:new A.LayoutRoot(new A.LayoutPanel({Children:[docs,tools]}))});
+for(const name of ['BrowserWindowOpened','BrowserWindowClosed','BrowserWindowBlocked','BrowserWindowBoundsChanged'])manager[name].add((_s,e)=>events.push({name,id:e.Model?.Id,reason:e.Reason}));
+window.nativeOpen=window.open;
+window.fixtures={a,docB,docC,tools,toolA,toolB};
+document.getElementById('open').onclick=()=>manager.FloatInBrowserWindow(manager.ActiveModel);
+document.getElementById('float').onclick=()=>manager.Float(manager.ActiveModel);
+window.openSubject=(key)=>{document.getElementById('open').onclick=()=>manager.FloatInBrowserWindow(manager.FindById(fixtures[key].Id));};
+window.valid=()=>A.validateLayout(manager.Layout);
+</script></body></html>

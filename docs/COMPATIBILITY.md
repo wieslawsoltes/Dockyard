@@ -1,6 +1,6 @@
 # Compatibility and capability boundaries
 
-Version: 0.1.0. Status refers to the code and tests delivered here, not an assertion of complete AvalonDock feature parity.
+Version: **0.2.0**. Status refers to the implementation and tests, not a claim of complete upstream AvalonDock parity. See [BROWSER-WINDOWS.md](BROWSER-WINDOWS.md) for the browser-host configuration, controls, lifecycle and validation contract.
 
 ## Meaning of “same API” in this package
 
@@ -19,9 +19,11 @@ The browser API retains familiar class names, PascalCase members, layout relatio
 | Collection and tree notifications | Adapted | Collections and their owners notify; full WPF event routing and ancestor `ChildrenTreeChanged` bubbling are not reproduced |
 | Docking, splits, tab movement | Implemented | Model/API and pointer paths enforce capability/type checks; keyboard equivalents cover common tab and splitter operations |
 | Tool group movement | Implemented with boundary | Root-edge moves preserve nested structure; grouped floating retains return panes. Some interior group merges flatten the group into the destination pane |
-| Document/tool destination rules | Implemented | Documents cannot become tools or dock directly to outer tool edges. Tools may enter document panes when allowed. Whole document-pane floating is not exposed; documents float individually |
-| Floating windows | Browser adaptation | In-page windows support moving, resizing, maximizing and redocking. They are not native `HWND` windows and cannot exceed their host viewport |
-| Separate browser pop-outs | Implemented and Chromium-tested | Requires a permitted `window.open` call. Explicit dock-back and parent-side tracking work. Native OS taskbar, owner-window, multi-monitor geometry and unrestricted drag between browser windows are not reproduced |
+| Document/tool destination rules | Implemented | Documents cannot become tools or dock directly to outer tool edges. Tools may enter document panes when allowed. Single documents, document panes and nested document groups can float together |
+| Floating windows | Two configurable hosts | In-page shells and real browser windows share the same layout models and commands. In-page floating stays within its host viewport; browser windows use native browsing contexts, not WPF `HWND` objects |
+| Real browser windows | Implemented and Chromium-tested | Concurrent document/tool windows, grouped floating, host switching, dock-back, child-aware menus/keyboard/splitters, shared content, style/theme updates and screen geometry. Browser permissions still govern popup creation, native frame placement, tabs versus windows and movement |
+| Cross-window docking | Implemented within one manager | Private-token HTML drag-and-drop between owner and child documents, and between children, uses the same capability checks. Native OS-titlebar dragging and cross-manager pointer transfer are not implemented |
+| Browser lifecycle | Implemented with browser boundaries | Configurable Dock/InPage/Close native-close policy, cancellation-safe content recovery, blocked-popup fallback, pending restored windows, explicit resume and owner/dispose cleanup. Child windows are owned views, not independent applications surviving owner shutdown |
 | Auto-hide | Implemented | Four rails, tool groups, peek timers, flyout resizing, hide/show, pinning and saved return positions |
 | Close cancellation and commands | Implemented | Manager signals and cancelable DOM events are honored. Command `CanExecute` tracks supported model flags; not every WPF command overload exists |
 | Tab pin state | Visual extension | `IsPinned` displays a pin state; it does not implement an independent pinned-tab ordering or close-all exclusion policy |
@@ -38,13 +40,14 @@ The browser API retains familiar class names, PascalCase members, layout relatio
 | History with application data | Explicit boundary | History does not rewind editor text, external collections, network requests or other application side effects. Coordinate source changes and business-data undo in the host application |
 | Model identity on restore | Explicit boundary | Undo/redo/deserialization recreates layout wrappers. Hosted content is rebound by `ContentId`; resolve fresh models with `manager.Find(id)` |
 | Content lifetime | Implemented | Existing nodes/factories are retained across layout moves and tab switches. Closed content may stay retained for history until explicitly released or the manager is disposed |
+| Framework content and portals | Explicit integration boundary | Retained DOM and content factories work across hosts. `ContentHostChanged` provides old/new documents for host adapters. Document-delegated framework roots require their own portal/event integration; arbitrary Razor/React portal compatibility is not certified |
 | Iframe state | Chromium-tested for same-document moves | Uses state-preserving DOM moves when available. Fallback `insertBefore` and cross-document popup adoption do not guarantee preservation of an iframe browsing context |
 | Separate manager instances | Implemented | Independent state, host-scoped CSS and explicit `TransferTo`. Pointer drag between two managers is not implemented |
 | Localization/RTL | Browser hooks | `Strings` and `FlowDirection` are exposed; the sample UI is English, not a bundled set of upstream satellite resource translations |
 | Accessibility | Semantics and keyboard support | ARIA tabs/panels/dialogs/separators, focus styling and common key paths are tested. This is not a completed WCAG or screen-reader certification |
 | Touch | PointerEvents implementation | A synthetic touch-pointer drag was exercised. Physical touch/stylus hardware, multi-touch behavior and mobile-browser quirks remain target-environment validation work |
-| Browser storage | Guarded implementation | Missing/denied storage is handled; layout auto-save is opt-in through a key. Cross-reload native-origin persistence was not browser-tested in this restricted environment |
-| Browser coverage | Chromium only in this delivery | 144.0.7559.96 tested. Firefox, Safari, physical mobile devices and older engines were not run |
+| Browser storage | Guarded and HTTP-origin tested | Missing/denied storage is handled; auto-save is opt-in through a key. HTTP reload tests verify restored browser intent without unsolicited popups. Application content must be persisted separately |
+| Browser coverage | Chromium | Local offline and GitHub HTTP-origin suites cover actual browser contexts. See [TESTING.md](TESTING.md). Firefox/Safari, physical mobile devices and physical multi-monitor behavior are not qualified |
 | WPF converters, interop and rendering classes | Not ported wholesale | Exported `Controls` classes are DOM adapters; there is no complete mirror of upstream converter classes, `DependencyObject`, native window hooks, drag service internals, or framework interfaces |
 
 ## Serialization safety and migration

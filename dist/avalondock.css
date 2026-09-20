@@ -93,3 +93,6 @@
 .ad-live{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}.ad-parking{display:none!important}
 @media(prefers-reduced-motion:no-preference){.ad-button,.ad-tab,.ad-anchor-tab,.ad-menu-item{transition:background .1s,color .1s}}
 @media(forced-colors:active){.ad-tab.ad-selected,.ad-drop-preview,.ad-floating{border-color:Highlight}.ad-tab.ad-selected:before{background:Highlight}}
+
+/* Serialized browser-window intent remains usable until a user resumes it. */
+.ad-browser-pending>.ad-floating-title{border-bottom:2px dashed var(--ad-accent)}

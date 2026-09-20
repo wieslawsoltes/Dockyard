@@ -1,4 +1,4 @@
-/** AvalonDock Web 0.1.0. Independent browser API; not WPF/CLR binary compatibility. */
+/** AvalonDock Web 0.2.0. Independent browser API; not WPF/CLR binary compatibility. */
 export type Unsubscribe = () => void;
 export type EventHandler<S, E> = (sender: S, args: E) => void;
 export class EventSignal<S = unknown, E = Record<string, unknown>> {
@@ -94,6 +94,11 @@ export const Orientation: Readonly<Record<OrientationValue, OrientationValue>>;
 export type AnchorSideValue = 'Left' | 'Top' | 'Right' | 'Bottom';
 export const AnchorSide: Readonly<Record<AnchorSideValue, AnchorSideValue>>;
 export const AnchorableShowStrategy: Readonly<{ Most: 1; Left: 2; Right: 4; Top: 16; Bottom: 32 }>;
+export type FloatingWindowModeValue = 'InPage' | 'BrowserWindow';
+export const FloatingWindowMode: Readonly<{ InPage: 'InPage'; BrowserWindow: 'BrowserWindow' }>;
+export const BrowserWindowCloseBehavior: Readonly<{ Dock: 'Dock'; InPage: 'InPage'; Close: 'Close' }>;
+export const BrowserWindowFallback: Readonly<{ InPage: 'InPage'; Cancel: 'Cancel' }>;
+export function isFloatingWindowMode(value: unknown): value is FloatingWindowModeValue;
 export type DockPosition = AnchorSideValue | 'Center';
 export type Constructor<T> = abstract new (...args: any[]) => T;
 
@@ -172,6 +177,7 @@ export type ContentResult = Node | string | number | boolean | object | null | u
 export interface ContentLifecycle { element: Node; dispose?(): void; }
 export type ContentFactory = (model: LayoutContent, manager: DockingManager) => ContentResult | ContentLifecycle;
 export interface ContentOptions {
+  FloatingWindowMode?: FloatingWindowModeValue | null;
   Id?: string; ContentId?: string | null; Title?: string; Content?: unknown;
   IconSource?: unknown; ToolTip?: unknown; Description?: string;
   CanClose?: boolean; CanFloat?: boolean; CanMove?: boolean; CanDock?: boolean; IsEnabled?: boolean;
@@ -180,6 +186,8 @@ export interface ContentOptions {
   IsMaximized?: boolean; PreviousContainerIndex?: number; LastActivationTimeStamp?: string | Date | null; UserData?: unknown;
 }
 export class LayoutContent extends LayoutElement {
+  FloatingWindowMode: FloatingWindowModeValue | null;
+  static readonly FloatingWindowModeProperty: PropertyToken<FloatingWindowModeValue | null>;
   static readonly CanDockProperty: PropertyToken<LayoutContent["CanDock"]>;
   static readonly CanMoveProperty: PropertyToken<LayoutContent["CanMove"]>;
   static readonly DescriptionProperty: PropertyToken<LayoutContent["Description"]>;
@@ -206,7 +214,7 @@ export class LayoutContent extends LayoutElement {
   readonly IsAutoHidden: boolean; readonly IsLastFocusedDocument: boolean;
   IsSelectedChanged: EventSignal<this>; IsActiveChanged: EventSignal<this>;
   Closing: EventSignal<this, CancelEventArgs>; Closed: EventSignal<this>;
-  Activate(): this; Float(): LayoutFloatingWindow | false;
+  Activate(): this; Float(bounds?: FloatOptions): LayoutFloatingWindow | false;
   Dock(): boolean | LayoutPane; DockAsDocument(): LayoutPane | false; Close(): boolean;
   static readonly TitleProperty: PropertyToken<string>;
   static readonly ContentIdProperty: PropertyToken<string | null>;
@@ -267,8 +275,11 @@ export class LayoutAnchorSide extends LayoutGroup<LayoutAnchorGroup> {
   constructor(options?: {Id?: string; Side?: AnchorSideValue; Children?: Iterable<LayoutAnchorGroup>} | LayoutAnchorGroup[]);
   Side: AnchorSideValue;
 }
+export interface FloatOptions extends FloatingBounds { FloatingWindowMode?: FloatingWindowModeValue; BrowserWindowFallback?: keyof typeof BrowserWindowFallback; }
 export interface FloatingBounds { FloatingLeft?: number; FloatingTop?: number; FloatingWidth?: number; FloatingHeight?: number; }
 export class LayoutFloatingWindow extends LayoutGroup {
+  FloatingWindowMode: FloatingWindowModeValue;
+  static readonly FloatingWindowModeProperty: PropertyToken<FloatingWindowModeValue>;
   static readonly FloatingHeightProperty: PropertyToken<LayoutFloatingWindow["FloatingHeight"]>;
   static readonly FloatingLeftProperty: PropertyToken<LayoutFloatingWindow["FloatingLeft"]>;
   static readonly FloatingTopProperty: PropertyToken<LayoutFloatingWindow["FloatingTop"]>;
@@ -281,11 +292,11 @@ export class LayoutFloatingWindow extends LayoutGroup {
   IsMaximized: boolean; ZIndex: number;
 }
 export class LayoutDocumentFloatingWindow extends LayoutFloatingWindow {
-  constructor(options?: FloatingBounds & {Id?: string; RootDocument?: LayoutDocument; RootPanel?: LayoutDocument | LayoutDocumentPane | LayoutDocumentPaneGroup; IsMaximized?: boolean; Children?: Iterable<LayoutElement>});
+  constructor(options?: FloatingBounds & { FloatingWindowMode?: FloatingWindowModeValue } & {Id?: string; RootDocument?: LayoutDocument; RootPanel?: LayoutDocument | LayoutDocumentPane | LayoutDocumentPaneGroup; IsMaximized?: boolean; Children?: Iterable<LayoutElement>});
   RootDocument: LayoutDocument | null;
 }
 export class LayoutAnchorableFloatingWindow extends LayoutFloatingWindow {
-  constructor(options?: FloatingBounds & {Id?: string; RootPanel?: LayoutAnchorablePaneGroup | LayoutAnchorablePane; IsMaximized?: boolean; Children?: Iterable<LayoutElement>});
+  constructor(options?: FloatingBounds & { FloatingWindowMode?: FloatingWindowModeValue } & {Id?: string; RootPanel?: LayoutAnchorablePaneGroup | LayoutAnchorablePane; IsMaximized?: boolean; Children?: Iterable<LayoutElement>});
 }
 export interface LayoutRootOptions {
   Id?: string; RootPanel?: LayoutPanel; TopSide?: LayoutAnchorSide; RightSide?: LayoutAnchorSide; LeftSide?: LayoutAnchorSide; BottomSide?: LayoutAnchorSide;
@@ -326,6 +337,11 @@ export interface MenuEntry {
 }
 export type MenuProvider = (model: LayoutContent, manager: DockingManager, defaults: (MenuEntry | null)[]) => (MenuEntry | null)[];
 export interface DockingSettings {
+  FloatingWindowMode: FloatingWindowModeValue;
+  AllowBrowserWindows: boolean;
+  EnableCrossWindowDocking: boolean;
+  BrowserWindowFallback: keyof typeof BrowserWindowFallback;
+  BrowserWindowCloseBehavior: keyof typeof BrowserWindowCloseBehavior;
   AllowMixedOrientation: boolean; Theme: string | Theme; FlowDirection: 'LeftToRight' | 'RightToLeft';
   GridSplitterWidth: number; GridSplitterHeight: number; FloatingWindowMinWidth: number; FloatingWindowMinHeight: number;
   ShowSystemMenu: boolean; AllowKeyboardNavigation: boolean; AutoHideDelay: number; AutoHideCloseDelay: number;
@@ -346,7 +362,18 @@ export interface DockingSettings {
   DocumentContextMenu: MenuProvider | (MenuEntry | null)[] | null; AnchorableContextMenu: MenuProvider | (MenuEntry | null)[] | null;
   Strings: Record<string, string> | null;
 }
+export interface BrowserWindowEventArgs { Model: LayoutFloatingWindow; Window: Window; }
+export class LayoutFloatingWindowControlCollectionChangedEventArgs {
+  constructor(collectionChangedEventArgs: { Action: 'Add' | 'Remove'; NewItems: (LayoutFloatingWindow | LayoutFloatingWindowControl)[]; OldItems: (LayoutFloatingWindow | LayoutFloatingWindowControl)[] });
+  readonly CollectionChangedEventArgs: { Action: 'Add' | 'Remove'; NewItems: (LayoutFloatingWindow | LayoutFloatingWindowControl)[]; OldItems: (LayoutFloatingWindow | LayoutFloatingWindowControl)[] };
+}
 export interface ManagerEventArgs {
+  ContentHostChanged: { Model: LayoutContent | null; Element: HTMLElement; OldDocument: Document; Document: Document; Window: Window | null };
+  LayoutFloatingWindowControlCollectionChanged: LayoutFloatingWindowControlCollectionChangedEventArgs;
+  BrowserWindowOpened: BrowserWindowEventArgs & { Control: LayoutFloatingWindowControl };
+  BrowserWindowClosed: BrowserWindowEventArgs & { Reason: string };
+  BrowserWindowBlocked: { Model: LayoutElement; Error: Error; Fallback: keyof typeof BrowserWindowFallback };
+  BrowserWindowBoundsChanged: BrowserWindowEventArgs & { Bounds: Required<FloatingBounds> };
   ActiveContentChanged: {OldContent: unknown; Content: unknown; Model: LayoutContent | null};
   DocumentClosing: CancelEventArgs & {Document: LayoutDocument; Model: LayoutDocument};
   DocumentClosed: {Document: LayoutDocument; Model: LayoutDocument};
@@ -357,8 +384,8 @@ export interface ManagerEventArgs {
   LayoutChanging: {OldLayout: LayoutRoot; NewLayout: LayoutRoot};
   LayoutChanged: {OldLayout: LayoutRoot; Layout: LayoutRoot};
   LayoutUpdated: {Layout: LayoutRoot; Label: string};
-  LayoutFloatingWindowControlCreated: {Model: LayoutFloatingWindow};
-  LayoutFloatingWindowControlClosed: {Model: LayoutFloatingWindow};
+  LayoutFloatingWindowControlCreated: {Model: LayoutFloatingWindow; Control: LayoutFloatingWindowControl | null};
+  LayoutFloatingWindowControlClosed: {Model: LayoutFloatingWindow; Control: LayoutFloatingWindowControl | null};
   HistoryChanged: {CanUndo: boolean; CanRedo: boolean; Label?: string};
   Error: {Error: Error; Operation: string; Model?: LayoutContent};
   ContentMoved: {Contents: LayoutContent[]; Operation: string; Target?: LayoutPane; Position?: DockPosition};
@@ -369,6 +396,22 @@ export type DockingManagerOptions = Partial<DockingSettings> & {
 } & { [K in keyof ManagerEventArgs]?: EventHandler<DockingManager, ManagerEventArgs[K]> };
 export interface DockingManager extends DockingSettings {}
 export class DockingManager extends ObservableObject {
+  static readonly FloatingWindowModeProperty: PropertyToken<FloatingWindowModeValue>;
+  static readonly AllowBrowserWindowsProperty: PropertyToken<boolean>;
+  static readonly EnableCrossWindowDockingProperty: PropertyToken<boolean>;
+  static readonly BrowserWindowFallbackProperty: PropertyToken<keyof typeof BrowserWindowFallback>;
+  static readonly BrowserWindowCloseBehaviorProperty: PropertyToken<keyof typeof BrowserWindowCloseBehavior>;
+  ContentHostChanged: EventSignal<this, ManagerEventArgs['ContentHostChanged']>;
+  LayoutFloatingWindowControlCollectionChanged: EventSignal<this, ManagerEventArgs['LayoutFloatingWindowControlCollectionChanged']>;
+  BrowserWindowOpened: EventSignal<this, ManagerEventArgs['BrowserWindowOpened']>;
+  BrowserWindowClosed: EventSignal<this, ManagerEventArgs['BrowserWindowClosed']>;
+  BrowserWindowBlocked: EventSignal<this, ManagerEventArgs['BrowserWindowBlocked']>;
+  BrowserWindowBoundsChanged: EventSignal<this, ManagerEventArgs['BrowserWindowBoundsChanged']>;
+  readonly BrowserWindows: LayoutFloatingWindowControl[];
+  readonly PendingBrowserWindows: LayoutFloatingWindow[];
+  FloatInPage(subject: LayoutElement, bounds?: FloatOptions): LayoutFloatingWindow | false;
+  FloatInBrowserWindow(subject: LayoutElement, bounds?: FloatOptions): LayoutFloatingWindow | false;
+  RestoreBrowserWindows(): Window[];
   static readonly AllowKeyboardNavigationProperty: PropertyToken<DockingManager["AllowKeyboardNavigation"]>;
   static readonly AllowMixedOrientationProperty: PropertyToken<DockingManager["AllowMixedOrientation"]>;
   static readonly AnchorGroupTemplateProperty: PropertyToken<DockingManager["AnchorGroupTemplate"]>;
@@ -443,7 +486,7 @@ export class DockingManager extends ObservableObject {
   Activate(value: unknown): boolean;
   AddDocument(document: LayoutDocument | ContentOptions, pane?: LayoutDocumentPane | null): LayoutDocument;
   AddAnchorable(anchorable: LayoutAnchorable | AnchorableOptions, strategy?: number | AnchorSideValue): LayoutAnchorable;
-  Float(subject: LayoutElement, bounds?: FloatingBounds): LayoutFloatingWindow | false;
+  Float(subject: LayoutElement, bounds?: FloatOptions): LayoutFloatingWindow | false;
   CanDockAt(subject: LayoutElement, target: LayoutElement, position?: DockPosition): boolean;
   Dock(subject: LayoutElement, target?: LayoutElement | null, position?: DockPosition, index?: number | null): LayoutPane | boolean;
   DockAsDocument(item: LayoutContent): LayoutPane | false;
@@ -471,7 +514,7 @@ export class LayoutItem extends ObservableObject {
   readonly View: HTMLElement | null;
   Title: string; ContentId: string | null; IconSource: unknown; ToolTip: unknown; Description: string;
   CanClose: boolean; CanFloat: boolean; IsSelected: boolean; IsActive: boolean; IsEnabled: boolean;
-  ActivateCommand: RelayCommand; CloseCommand: RelayCommand; FloatCommand: RelayCommand; DockCommand: RelayCommand; DockAsDocumentCommand: RelayCommand;
+  ActivateCommand: RelayCommand; CloseCommand: RelayCommand; FloatCommand: RelayCommand; FloatInPageCommand: RelayCommand; FloatInBrowserWindowCommand: RelayCommand; DockCommand: RelayCommand; DockAsDocumentCommand: RelayCommand;
   CloseAllButThisCommand: RelayCommand; CloseAllCommand: RelayCommand;
   NewVerticalTabGroupCommand: RelayCommand; NewHorizontalTabGroupCommand: RelayCommand;
   MoveToNextTabGroupCommand: RelayCommand; MoveToPreviousTabGroupCommand: RelayCommand;
@@ -497,7 +540,9 @@ export class LayoutAnchorablePaneGroupControl extends LayoutControl<LayoutAnchor
 export class LayoutAnchorGroupControl extends LayoutControl<LayoutAnchorGroup> {}
 export class LayoutAnchorSideControl extends LayoutControl<LayoutAnchorSide> {}
 export class LayoutFloatingWindowControl extends LayoutControl<LayoutFloatingWindow> {
-  Show(): void; Close(): boolean; Dock(): boolean | LayoutPane; Maximize(): void; Restore(): void; readonly IsMaximized: boolean;
+  readonly Window: Window | null; readonly IsBrowserWindow: boolean; readonly FloatingWindowMode: FloatingWindowModeValue;
+  Activate(): boolean; FloatInPage(): LayoutFloatingWindow | false; FloatInBrowserWindow(): LayoutFloatingWindow | false;
+  Show(): Window | HTMLElement | null; Close(): boolean; Dock(): boolean | LayoutPane; Maximize(): void; Restore(): void; readonly IsMaximized: boolean;
 }
 export class LayoutDocumentFloatingWindowControl extends LayoutFloatingWindowControl {}
 export class LayoutAnchorableFloatingWindowControl extends LayoutFloatingWindowControl {}
@@ -534,7 +579,7 @@ export class AvalonDockElement extends HTMLElement {
 }
 export function parseLayoutElement(element: Element): LayoutElement;
 export function registerAvalonDock(tagName?: string): boolean;
-export const version: '0.1.0';
+export const version: '0.2.0';
 export const Commands: Readonly<{RelayCommand: typeof RelayCommand}>;
 export const Serialization: Readonly<{LayoutSerializer: typeof LayoutSerializer; XmlLayoutSerializer: typeof XmlLayoutSerializer; JsonLayoutSerializer: typeof JsonLayoutSerializer; LayoutSerializationCallbackEventArgs: typeof LayoutSerializationCallbackEventArgs; snapshot: typeof snapshot; hydrate: typeof hydrate; toXml: typeof toXml; xmlToSnapshot: typeof xmlToSnapshot}>;
 export const Themes: Readonly<{Theme: typeof Theme; GenericTheme: typeof GenericTheme; AeroTheme: typeof AeroTheme; VS2010Theme: typeof VS2010Theme; MetroTheme: typeof MetroTheme; DarkTheme: typeof DarkTheme; LightTheme: typeof LightTheme; HighContrastTheme: typeof HighContrastTheme}>;
@@ -556,6 +601,8 @@ export const AvalonDock: typeof Layout & typeof Serialization & typeof Themes & 
   CancelEventArgs: typeof CancelEventArgs; PropertyChangedEventArgs: typeof PropertyChangedEventArgs;
   DocumentClosingEventArgs: typeof DocumentClosingEventArgs; DocumentClosedEventArgs: typeof DocumentClosedEventArgs; LayoutEventArgs: typeof LayoutEventArgs; LayoutElementEventArgs: typeof LayoutElementEventArgs;
   getSchema: typeof getSchema; properties: typeof properties; finite: typeof finite; positive: typeof positive; boolean: typeof boolean; uid: typeof uid;
+  LayoutFloatingWindowControlCollectionChangedEventArgs: typeof LayoutFloatingWindowControlCollectionChangedEventArgs;
+  FloatingWindowMode: typeof FloatingWindowMode; BrowserWindowCloseBehavior: typeof BrowserWindowCloseBehavior; BrowserWindowFallback: typeof BrowserWindowFallback; isFloatingWindowMode: typeof isFloatingWindowMode;
   version: typeof version;
 };
 export default AvalonDock;

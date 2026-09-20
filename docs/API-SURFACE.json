@@ -1,6 +1,6 @@
 {
   "package": "@wieslawsoltes/dockyard",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "scope": "Implemented JavaScript exports only; not a completeness comparison with WPF AvalonDock.",
   "exports": {
     "AeroTheme": {
@@ -37,6 +37,8 @@
         "AnchorSide",
         "AnchorableShowStrategy",
         "AvalonDockElement",
+        "BrowserWindowCloseBehavior",
+        "BrowserWindowFallback",
         "CancelEventArgs",
         "Commands",
         "Controls",
@@ -45,6 +47,7 @@
         "DocumentClosedEventArgs",
         "DocumentClosingEventArgs",
         "EventSignal",
+        "FloatingWindowMode",
         "GenericTheme",
         "GridLength",
         "GridUnitType",
@@ -82,6 +85,7 @@
         "LayoutEventArgs",
         "LayoutFloatingWindow",
         "LayoutFloatingWindowControl",
+        "LayoutFloatingWindowControlCollectionChangedEventArgs",
         "LayoutGroup",
         "LayoutGroupBase",
         "LayoutItem",
@@ -112,6 +116,7 @@
         "finite",
         "getSchema",
         "hydrate",
+        "isFloatingWindowMode",
         "positive",
         "properties",
         "registerAvalonDock",
@@ -145,6 +150,21 @@
       ],
       "observableProperties": [],
       "ownPropertyTokens": []
+    },
+    "BrowserWindowCloseBehavior": {
+      "kind": "namespace-or-enum",
+      "members": [
+        "Close",
+        "Dock",
+        "InPage"
+      ]
+    },
+    "BrowserWindowFallback": {
+      "kind": "namespace-or-enum",
+      "members": [
+        "Cancel",
+        "InPage"
+      ]
     },
     "CancelEventArgs": {
       "kind": "class",
@@ -217,6 +237,16 @@
           "write": false
         },
         {
+          "name": "BrowserWindows",
+          "read": true,
+          "write": false
+        },
+        {
+          "name": "PendingBrowserWindows",
+          "read": true,
+          "write": false
+        },
+        {
           "name": "AutoHideWindow",
           "read": true,
           "write": false
@@ -263,6 +293,31 @@
         },
         {
           "name": "AnchorablesSource",
+          "read": true,
+          "write": true
+        },
+        {
+          "name": "FloatingWindowMode",
+          "read": true,
+          "write": true
+        },
+        {
+          "name": "AllowBrowserWindows",
+          "read": true,
+          "write": true
+        },
+        {
+          "name": "EnableCrossWindowDocking",
+          "read": true,
+          "write": true
+        },
+        {
+          "name": "BrowserWindowFallback",
+          "read": true,
+          "write": true
+        },
+        {
+          "name": "BrowserWindowCloseBehavior",
           "read": true,
           "write": true
         },
@@ -504,6 +559,9 @@
         "AddDocument",
         "AddAnchorable",
         "Float",
+        "FloatInPage",
+        "FloatInBrowserWindow",
+        "RestoreBrowserWindows",
         "CanDockAt",
         "Dock",
         "DockAsDocument",
@@ -531,6 +589,7 @@
         "TransferTo"
       ],
       "observableProperties": [
+        "AllowBrowserWindows",
         "AllowKeyboardNavigation",
         "AllowMixedOrientation",
         "AnchorGroupTemplate",
@@ -546,6 +605,8 @@
         "AutoHideCloseDelay",
         "AutoHideDelay",
         "AutoSave",
+        "BrowserWindowCloseBehavior",
+        "BrowserWindowFallback",
         "DocumentContextMenu",
         "DocumentHeaderTemplate",
         "DocumentHeaderTemplateSelector",
@@ -555,9 +616,11 @@
         "DocumentPaneTemplate",
         "DocumentTitleTemplate",
         "DocumentTitleTemplateSelector",
+        "EnableCrossWindowDocking",
         "EnableHistory",
         "FloatingWindowMinHeight",
         "FloatingWindowMinWidth",
+        "FloatingWindowMode",
         "FlowDirection",
         "GridSplitterHeight",
         "GridSplitterWidth",
@@ -577,6 +640,7 @@
       ],
       "ownPropertyTokens": [
         "ActiveContentProperty",
+        "AllowBrowserWindowsProperty",
         "AllowKeyboardNavigationProperty",
         "AllowMixedOrientationProperty",
         "AnchorGroupTemplateProperty",
@@ -593,6 +657,8 @@
         "AutoHideCloseDelayProperty",
         "AutoHideDelayProperty",
         "AutoSaveProperty",
+        "BrowserWindowCloseBehaviorProperty",
+        "BrowserWindowFallbackProperty",
         "DocumentContextMenuProperty",
         "DocumentHeaderTemplateProperty",
         "DocumentHeaderTemplateSelectorProperty",
@@ -603,9 +669,11 @@
         "DocumentTitleTemplateProperty",
         "DocumentTitleTemplateSelectorProperty",
         "DocumentsSourceProperty",
+        "EnableCrossWindowDockingProperty",
         "EnableHistoryProperty",
         "FloatingWindowMinHeightProperty",
         "FloatingWindowMinWidthProperty",
+        "FloatingWindowModeProperty",
         "FlowDirectionProperty",
         "GridSplitterHeightProperty",
         "GridSplitterWidthProperty",
@@ -662,6 +730,13 @@
       ],
       "observableProperties": [],
       "ownPropertyTokens": []
+    },
+    "FloatingWindowMode": {
+      "kind": "namespace-or-enum",
+      "members": [
+        "BrowserWindow",
+        "InPage"
+      ]
     },
     "GenericTheme": {
       "kind": "class",
@@ -903,6 +978,7 @@
         "FloatingLeft",
         "FloatingTop",
         "FloatingWidth",
+        "FloatingWindowMode",
         "IconSource",
         "Id",
         "IsEnabled",
@@ -943,6 +1019,7 @@
         "FloatingLeft",
         "FloatingTop",
         "FloatingWidth",
+        "FloatingWindowMode",
         "Id",
         "IsMaximized",
         "ZIndex"
@@ -1121,6 +1198,11 @@
           "write": false
         },
         {
+          "name": "FloatingWindowMode",
+          "read": true,
+          "write": true
+        },
+        {
           "name": "Title",
           "read": true,
           "write": true
@@ -1245,6 +1327,7 @@
         "FloatingLeft",
         "FloatingTop",
         "FloatingWidth",
+        "FloatingWindowMode",
         "IconSource",
         "Id",
         "IsEnabled",
@@ -1269,6 +1352,7 @@
         "FloatingLeftProperty",
         "FloatingTopProperty",
         "FloatingWidthProperty",
+        "FloatingWindowModeProperty",
         "IconSourceProperty",
         "IsEnabledProperty",
         "IsMaximizedProperty",
@@ -1314,6 +1398,7 @@
         "FloatingLeft",
         "FloatingTop",
         "FloatingWidth",
+        "FloatingWindowMode",
         "IconSource",
         "Id",
         "IsEnabled",
@@ -1358,6 +1443,7 @@
         "FloatingLeft",
         "FloatingTop",
         "FloatingWidth",
+        "FloatingWindowMode",
         "Id",
         "IsMaximized",
         "ZIndex"
@@ -1559,6 +1645,11 @@
           "write": true
         },
         {
+          "name": "FloatingWindowMode",
+          "read": true,
+          "write": true
+        },
+        {
           "name": "FloatingLeft",
           "read": true,
           "write": true
@@ -1595,6 +1686,7 @@
         "FloatingLeft",
         "FloatingTop",
         "FloatingWidth",
+        "FloatingWindowMode",
         "Id",
         "IsMaximized",
         "ZIndex"
@@ -1604,6 +1696,7 @@
         "FloatingLeftProperty",
         "FloatingTopProperty",
         "FloatingWidthProperty",
+        "FloatingWindowModeProperty",
         "IsMaximizedProperty",
         "ZIndexProperty"
       ]
@@ -1613,6 +1706,21 @@
       "extends": "LayoutControl",
       "ownProperties": [
         {
+          "name": "Window",
+          "read": true,
+          "write": false
+        },
+        {
+          "name": "IsBrowserWindow",
+          "read": true,
+          "write": false
+        },
+        {
+          "name": "FloatingWindowMode",
+          "read": true,
+          "write": false
+        },
+        {
           "name": "IsMaximized",
           "read": true,
           "write": false
@@ -1620,11 +1728,23 @@
       ],
       "ownMethods": [
         "Show",
+        "Activate",
+        "Focus",
+        "FloatInPage",
+        "FloatInBrowserWindow",
         "Close",
         "Dock",
         "Maximize",
         "Restore"
       ],
+      "observableProperties": [],
+      "ownPropertyTokens": []
+    },
+    "LayoutFloatingWindowControlCollectionChangedEventArgs": {
+      "kind": "class",
+      "extends": null,
+      "ownProperties": [],
+      "ownMethods": [],
       "observableProperties": [],
       "ownPropertyTokens": []
     },
@@ -2279,6 +2399,8 @@
         "AnchorSide",
         "AnchorableShowStrategy",
         "AvalonDockElement",
+        "BrowserWindowCloseBehavior",
+        "BrowserWindowFallback",
         "CancelEventArgs",
         "Commands",
         "Controls",
@@ -2287,6 +2409,7 @@
         "DocumentClosedEventArgs",
         "DocumentClosingEventArgs",
         "EventSignal",
+        "FloatingWindowMode",
         "GenericTheme",
         "GridLength",
         "GridUnitType",
@@ -2324,6 +2447,7 @@
         "LayoutEventArgs",
         "LayoutFloatingWindow",
         "LayoutFloatingWindowControl",
+        "LayoutFloatingWindowControlCollectionChangedEventArgs",
         "LayoutGroup",
         "LayoutGroupBase",
         "LayoutItem",
@@ -2354,6 +2478,7 @@
         "finite",
         "getSchema",
         "hydrate",
+        "isFloatingWindowMode",
         "positive",
         "properties",
         "registerAvalonDock",
@@ -2372,6 +2497,9 @@
       "kind": "function"
     },
     "hydrate": {
+      "kind": "function"
+    },
+    "isFloatingWindowMode": {
       "kind": "function"
     },
     "parseLayoutElement": {
@@ -2400,7 +2528,7 @@
     },
     "version": {
       "kind": "string",
-      "value": "0.1.0"
+      "value": "0.2.0"
     },
     "xmlToSnapshot": {
       "kind": "function"

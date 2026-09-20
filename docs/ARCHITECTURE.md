@@ -1,5 +1,11 @@
 # Architecture
 
+> **Version 0.2.0:** Real browser-window floating is implemented alongside in-page
+> floating. See [BROWSER-WINDOWS.md](BROWSER-WINDOWS.md) for current configuration,
+> controls, events, persistence, cleanup and test coverage. Older pop-out-only
+> limitations in the baseline notes below are superseded by that contract;
+> unrelated WPF/runtime and native-platform boundaries remain unchanged.
+
 ## Separation of responsibilities
 
 `events.js` implements signals, observable properties, typed owner-aware collections, GridLength and commands. `model.js` implements a headless layout tree and invariants. `manager.js` coordinates changes, insertion strategies, visibility, sources, history and content identity. `serialization.js` converts layout metadata to strict JSON/XML and rebinds content. `items.js` exposes command-oriented adapters over content models.

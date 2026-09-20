@@ -15,7 +15,14 @@ export class LayoutAnchorablePaneGroupControl extends LayoutControl {}
 export class LayoutAnchorGroupControl extends LayoutControl {}
 export class LayoutAnchorSideControl extends LayoutControl {get Element(){return this.Manager?._view?.sideElements[this.Model.Side]||null;}}
 export class LayoutFloatingWindowControl extends LayoutControl {
-  Show(){this.Manager?._view?.requestRender();}
+  get Window(){return this.Manager?._view?.popups.get(this.Model.Id)?.window||null;}
+  get IsBrowserWindow(){return !!this.Window&&!this.Window.closed;}
+  get FloatingWindowMode(){return this.Model.FloatingWindowMode;}
+  Show(){if(this.Model.FloatingWindowMode==='BrowserWindow')return this.Manager.PopOut(this.Model);this.Manager?._view?.requestRender();return this.Element;}
+  Activate(){const items=[...this.Model.Descendents()].filter(x=>x instanceof LayoutContent);const selected=items.find(x=>x.IsSelected)||items[0];if(selected)this.Manager.Activate(selected);this.Focus();return !!selected;}
+  Focus(){if(this.Window)this.Window.focus();else super.Focus();}
+  FloatInPage(){return this.Manager.FloatInPage(this.Model);}
+  FloatInBrowserWindow(){return this.Manager.FloatInBrowserWindow(this.Model);}
   Close(){return this.Manager.CloseFloatingWindow(this.Model);}
   Dock(){return this.Manager.Dock(this.Model);}
   Maximize(){this.Manager.Transaction('Maximize window',()=>{this.Model.IsMaximized=true;});}

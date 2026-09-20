@@ -38,3 +38,24 @@ new LayoutPanel({Orientation:'Diagonal'});
 new LayoutAnchorablePane({Children:[new LayoutDocument()]});
 // @ts-expect-error invalid capability type must be caught
 new LayoutDocument({CanFloat:'yes'});
+
+const windowManager = new DockingManager(document.createElement('main'), {
+  FloatingWindowMode: AvalonDock.FloatingWindowMode.BrowserWindow,
+  BrowserWindowCloseBehavior: 'Dock', BrowserWindowFallback: 'Cancel',
+  AllowBrowserWindows: true, EnableCrossWindowDocking: true,
+  BrowserWindowOpened(_sender, event) { event.Window.focus(); event.Control.Activate(); },
+  BrowserWindowBlocked(_sender, event) { console.warn(event.Error, event.Fallback); },
+  ContentHostChanged(_sender, event) { event.Document.addEventListener('keydown', () => {}); },
+  LayoutFloatingWindowControlCollectionChanged(_sender, event) { console.log(event.CollectionChangedEventArgs.Action); }
+});
+const windowItem = windowManager.AddDocument({ContentId:'window-editor',FloatingWindowMode:'BrowserWindow'});
+const floatingModel = windowManager.FloatInBrowserWindow(windowItem, {FloatingLeft:-100,FloatingTop:40, FloatingWidth:600});
+if (floatingModel) { windowManager.FloatInPage(floatingModel); floatingModel.FloatingWindowMode='BrowserWindow'; }
+windowManager.GetLayoutItemFromModel(windowItem).FloatInBrowserWindowCommand.Execute();
+for(const control of windowManager.BrowserWindows) { const browser:Window|null=control.Window; browser?.focus(); control.FloatInPage(); }
+for(const native of windowManager.RestoreBrowserWindows()) native.focus();
+// @ts-expect-error invalid window mode
+windowManager.FloatingWindowMode='Native';
+// @ts-expect-error native close must follow one of the three supported policies
+windowManager.BrowserWindowCloseBehavior='Ignore';
+windowManager.Dispose();

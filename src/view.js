@@ -2,13 +2,14 @@ import { GridLength } from './events.js';
 import { LayoutRoot, LayoutPanel, LayoutContent, LayoutDocument, LayoutAnchorable, LayoutPane, LayoutDocumentPane, LayoutAnchorablePane, LayoutDocumentPaneGroup, LayoutAnchorablePaneGroup, LayoutAnchorSide, LayoutAnchorGroup, LayoutFloatingWindow, LayoutDocumentFloatingWindow, contents } from './model.js';
 import { element, icon, button, syncChildren, moveNode, clamp, rectRelative, applyStyle, selectTemplate } from './dom.js';
 import { controlFor } from './controls.js';
+import { BrowserWindowHost } from './browser-windows.js';
 
 const SIDES = ['Left','Top','Right','Bottom'];
 export class DockRenderer {
   constructor(manager, host) {
     this.manager = manager; this.host = host; this.doc = host.ownerDocument; this.win = this.doc.defaultView;
     this.abort = new this.win.AbortController(); this.records = new Map(); this.contentRecords = new Map(); this.tabs = new Map(); this.splitters = new Map();
-    this.popups = new Map(); this.sideElements = {}; this.frame = 0; this.rendering = false; this.disposed = false;
+    this.controls = new Map(); this.popups = new Map(); this.sideElements = {}; this.frame = 0; this.rendering = false; this.disposed = false;
     this._originalNodes = [...host.childNodes]; this._oldClass = host.className; this._oldTabIndex = host.getAttribute('tabindex'); this._oldRole = host.getAttribute('role');
     host.classList.add('ad-manager'); host.tabIndex = 0; host.setAttribute('role', 'region'); host.setAttribute('aria-label', 'Docking workspace');
     this.stage = element(this.doc, 'div', 'ad-stage');
@@ -23,6 +24,8 @@ export class DockRenderer {
     this.parking = element(this.doc, 'div', 'ad-parking'); this.parking.hidden = true;
     this.live = element(this.doc, 'div', 'ad-live'); this.live.setAttribute('aria-live', 'polite'); this.live.setAttribute('aria-atomic','true');
     host.replaceChildren(this.stage, this.floatingLayer, this.overlay, this.parking, this.live);
+    this.rootSurface = Object.fromEntries(['doc','win','host','workspace','overlay','parking','live'].map(key => [key, this[key]]));
+    this.browserWindows = new BrowserWindowHost(this);
     const opts = { signal: this.abort.signal };
     host.addEventListener('keydown', event => this.onKeyDown(event), opts);
     host.addEventListener('keyup', event => this.onKeyUp(event), opts);
@@ -37,14 +40,35 @@ export class DockRenderer {
     this.win.addEventListener('blur', () => this.cancelInteraction(), opts);
     this.resizeObserver = new this.win.ResizeObserver(() => { if (!this.interaction) this.requestRender(); }); this.resizeObserver.observe(host);
   }
+  surfaceFor(doc) { return [...this.popups.values()].find(rec => rec.doc === doc)?.surface || this.rootSurface; }
+  withSurface(surface, action) {
+    const keys = ['doc','win','host','workspace','overlay','parking','live'];
+    const old = Object.fromEntries(keys.map(key => [key, this[key]])), previous = this.currentSurface;
+    Object.assign(this, Object.fromEntries(keys.map(key => [key, surface[key]]))); this.currentSurface = surface;
+    try { return action(); } finally { Object.assign(this, old); this.currentSurface = previous; }
+  }
   requestRender() {
     if (this.disposed || this.frame) return;
-    this.frame = this.win.requestAnimationFrame(() => { this.frame = 0; this.render(); });
+    // The owner can be minimized/backgrounded while a child remains visible.
+    // A hidden owner's requestAnimationFrame must not stall every child view.
+    const surface = [this.rootSurface, ...[...this.popups.values()].map(r => r.surface)]
+      .find(s => !s.win.closed && s.doc.visibilityState === 'visible') || this.rootSurface;
+    this.frameWindow = surface.win;
+    this.frameIsTimer = surface.doc.visibilityState !== 'visible';
+    const run = () => { this.frame = 0; this.render(); };
+    this.frame = this.frameIsTimer ? surface.win.setTimeout(run, 16) : surface.win.requestAnimationFrame(run);
+  }
+  cancelRenderFrame() {
+    if (!this.frame) return;
+    if (this.frameIsTimer) this.frameWindow.clearTimeout(this.frame);
+    else this.frameWindow.cancelAnimationFrame(this.frame);
+    this.frame = 0;
   }
   invalidateTemplates() { for (const rec of this.contentRecords.values()) rec.template = Symbol('invalid'); this.requestRender(); }
   render() {
     if (this.disposed || this.rendering) return;
     this.rendering = true;
+    this.browserWindows.reconcile();
     const active = this.doc.activeElement;
     const selection = active && 'selectionStart' in active ? { start: active.selectionStart, end: active.selectionEnd, direction: active.selectionDirection } : null;
     const start = this.win.performance.now();
@@ -63,7 +87,7 @@ export class DockRenderer {
       const floating = [];
       for (const model of this.manager.Layout.FloatingWindows) {
         const popup = this.popups.get(model.Id);
-        if (popup && !popup.window.closed) { this.renderPopup(model, popup); continue; }
+        if (popup && this.browserWindows.render(model, popup)) continue;
         floating.push(this.renderFloating(model));
       }
       this.sync(this.floatingLayer, floating);
@@ -72,7 +96,7 @@ export class DockRenderer {
         if (!this.visibleContents.has(id)) {
           rec.el.hidden = true;
           // Keep hidden content alive and connected; factories are disposed only on explicit release.
-          if (!rec.el.isConnected || !this.host.contains(rec.el)) moveNode(this.parking, rec.el);
+          if (!rec.el.isConnected) moveNode(this.parking, rec.el);
         }
       }
       for (const [id, record] of this.records) if (!this.usedRecords.has(id)) {
@@ -85,6 +109,14 @@ export class DockRenderer {
       for (const rec of this.records.values()) {
         if ('ActualWidth' in rec.model) { const rect = rec.el.getBoundingClientRect(); rec.model._values.ActualWidth = rect.width; rec.model._values.ActualHeight = rect.height; }
       }
+      for (const [id, rec] of this.contentRecords) {
+        const doc = rec.el.ownerDocument;
+        if (rec.hostDocument && rec.hostDocument !== doc) this.manager._emit('ContentHostChanged', {
+          Model: this.manager.Find(id), Element: rec.el, OldDocument: rec.hostDocument, Document: doc, Window: doc.defaultView
+        });
+        rec.hostDocument = doc;
+      }
+      for (const id of this.controls.keys()) if (!this.manager.FindById(id)) this.controls.delete(id);
       if (active?.isConnected && this.doc.activeElement !== active && this.host.contains(active)) {
         try { active.focus({ preventScroll: true }); if (selection && selection.start != null) active.setSelectionRange(selection.start, selection.end, selection.direction); } catch { /* Not all editable elements expose text selection. */ }
       }
@@ -159,6 +191,7 @@ export class DockRenderer {
       if (typeof template === 'function') template(model, el, this.manager);
       return { el, title, caption, actions, menu, pin, close, tabRow, tabs, overflow, body, empty };
     });
+    rec.title.dataset.adDrag = model.Id; rec.title.draggable = true;
     const selected = model.SelectedContent;
     rec.el.classList.toggle('ad-active-pane', model.IsActive);
     rec.el.setAttribute('aria-label', selected?.Title || (isDoc ? 'Document pane' : 'Tool pane'));
@@ -201,13 +234,13 @@ export class DockRenderer {
         if (['ArrowLeft','ArrowRight','Home','End'].includes(event.key) && !event.altKey) {
           event.preventDefault(); const items = [...rec.pane.Children].filter(x => x.IsEnabled); let i = items.indexOf(rec.model);
           i = event.key === 'Home' ? 0 : event.key === 'End' ? items.length-1 : (i + (event.key === 'ArrowRight' ? 1 : -1) + items.length) % items.length;
-          if (items[i]) { this.manager.Activate(items[i]); this.requestRender(); this.win.requestAnimationFrame(() => this.tabs.get(`${rec.pane.Id}:${items[i].ContentId}`)?.el.focus()); }
+          if (items[i]) { this.manager.Activate(items[i]); this.requestRender(); event.currentTarget.ownerDocument.defaultView.requestAnimationFrame(() => this.tabs.get(`${rec.pane.Id}:${items[i].ContentId}`)?.el.focus()); }
         } else if (event.key === 'Delete' && event.shiftKey) { event.preventDefault(); rec.model.Close(); }
         else if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); this.manager.Activate(rec.model); }
       });
       this.tabs.set(key,rec);
     }
-    rec.model = model; rec.pane = pane;
+    rec.model = model; rec.pane = pane; rec.el.dataset.adDrag = model.Id; rec.el.draggable = true;
     rec.el.id = `${this.manager.Id}-tab-${encodeURIComponent(model.Id)}`; rec.el.tabIndex = model.IsSelected ? 0 : -1;
     rec.el.setAttribute('aria-selected', String(model.IsSelected)); rec.el.setAttribute('aria-disabled', String(!model.IsEnabled));
     rec.el.setAttribute('aria-controls',`${this.manager.Id}-content-${encodeURIComponent(model.ContentId)}`);
@@ -353,7 +386,8 @@ export class DockRenderer {
       const dock=button(this.doc,'dock','Dock window',()=>this.manager.Dock(rec.model));
       const maximize=button(this.doc,'maximize','Maximize window',()=>this.manager.Transaction('Maximize window',()=>{rec.model.IsMaximized=!rec.model.IsMaximized;}));
       const close=button(this.doc,'close','Close floating window',()=>this.manager.CloseFloatingWindow(rec.model),'ad-close-window');
-      title.append(caption,dock,maximize,close);
+      const browser=button(this.doc,'float','Open in browser window',()=>this.manager.PopOut(rec.model));
+      title.append(caption,dock,browser,maximize,close);
       title.addEventListener('pointerdown',event=>{if(!event.target.closest('button'))this.beginDrag(event,rec.model);});
       title.addEventListener('dblclick',event=>{if(!event.target.closest('button'))this.manager.Transaction('Maximize window',()=>{rec.model.IsMaximized=!rec.model.IsMaximized;});});
       title.addEventListener('contextmenu',event=>{if(this.manager.ShowSystemMenu){event.preventDefault();this.openContextMenu(contents(rec.model)[0],event.clientX,event.clientY);}});
@@ -371,8 +405,11 @@ export class DockRenderer {
         });el.append(grip);
       }
       el.addEventListener('pointerdown',()=>{const item=contents(rec.model).find(x=>x.IsSelected)||contents(rec.model)[0];if(item)this.manager.Activate(item);});
-      return {el,title,caption,dock,maximize,close,body};
+      return {el,title,caption,dock,browser,maximize,close,body};
     });
+    rec.title.dataset.adDrag=model.Id;rec.title.draggable=true;
+    rec.browser.hidden=!this.manager.AllowBrowserWindows;
+    rec.el.classList.toggle('ad-browser-pending',model.FloatingWindowMode==='BrowserWindow');
     const all=contents(model),selected=all.find(x=>x.IsActive)||all.find(x=>x.IsSelected)||all[0];
     this.renderLabel(rec.caption,selected,selected instanceof LayoutAnchorable?'AnchorableTitleTemplate':'DocumentTitleTemplate');
     rec.el.setAttribute('aria-label',selected?.Title||'Floating window');rec.el.dataset.floatingId=model.Id;
@@ -415,13 +452,17 @@ export class DockRenderer {
     rec.el.setAttribute('aria-valuenow',String(Math.round(100*av/(av+bv||1))));
     return rec.el;
   }
-  elementFor(model) { return this.records.get(model.Id)?.el || (model instanceof LayoutContent ? this.contentRecords.get(model.ContentId)?.el : null); }
-  contentElement(model) { return this.contentRecords.get(model.ContentId)?.el || null; }
-  controlFor(model) { return controlFor(model,this.manager); }
+  elementFor(model) { return this.popups.get(model?.Id)?.shell || this.records.get(model?.Id)?.el || (model instanceof LayoutContent ? this.contentRecords.get(model.ContentId)?.el : null); }
+  contentElement(model) { return this.contentRecords.get(model?.ContentId)?.el || null; }
+  controlFor(model) {
+    let control = this.controls.get(model?.Id);
+    if (!control || control.Model !== model) { control = controlFor(model, this.manager); if (model) this.controls.set(model.Id, control); }
+    return control;
+  }
   focusContent(model) {
-    if(!model)return;this.requestRender();this.win.requestAnimationFrame(()=>{
+    if(!model)return;this.requestRender();(this.contentElement(model)?.ownerDocument.defaultView || this.win).requestAnimationFrame(()=>{
       const content=this.contentElement(model);const target=content?.querySelector('textarea,input,button,[contenteditable="true"],[tabindex="0"]')||content;
-      target?.focus({preventScroll:true});
+      target?.ownerDocument.defaultView?.focus(); target?.focus({preventScroll:true});
     });
   }
   announce(text){this.live.textContent=text;}
@@ -436,7 +477,8 @@ export class DockRenderer {
       cmd('New vertical tab group',wrapper.NewVerticalTabGroupCommand),cmd('New horizontal tab group',wrapper.NewHorizontalTabGroupCommand),
       cmd('Move to next tab group',wrapper.MoveToNextTabGroupCommand),cmd('Move to previous tab group',wrapper.MoveToPreviousTabGroupCommand),
       ...(model instanceof LayoutAnchorable?[null,...SIDES.map(side=>({Label:`Dock to ${side.toLowerCase()} edge`,Execute:()=>this.manager.Dock(model,this.manager.Layout,side),CanExecute:()=>this.manager.CanDockAt(model,this.manager.Layout,side)}))]:[]),
-      null,{Label:'Open in browser window',Execute:()=>this.popOut(model),CanExecute:()=>model.CanFloat&&model.CanMove},
+      null,{Label:'Open in browser window',Execute:()=>this.manager.PopOut(model),CanExecute:()=>this.manager.AllowBrowserWindows&&model.CanFloat&&model.CanMove&&model.IsEnabled},
+      {Label:'Float in page',Execute:()=>this.manager.FloatInPage(model),CanExecute:()=>model.CanFloat&&model.CanMove&&model.IsEnabled},
       null,cmd('Close',wrapper.CloseCommand,'Ctrl+F4'),cmd('Close other tabs',wrapper.CloseAllButThisCommand),cmd('Close all tabs',wrapper.CloseAllCommand)
     ];
     const provider=model instanceof LayoutAnchorable?this.manager.AnchorableContextMenu:this.manager.DocumentContextMenu;
@@ -480,6 +522,7 @@ export class DockRenderer {
     if(!items.length||!items.every(x=>x.CanMove&&x.IsEnabled))return;
     if(subject instanceof LayoutContent&&subject.Parent instanceof LayoutPane&&!subject.Parent.CanRepositionItems)return;
     if(subject instanceof LayoutFloatingWindow&&subject.IsMaximized)return;
+    if(this.browserWindows.useNativeDrag(event))return;
     const start={x:event.clientX,y:event.clientY};let active=false,drop=null;
     const floating=subject instanceof LayoutFloatingWindow?subject:null;
     const floatingElement=floating?this.elementFor(floating):null;
@@ -522,7 +565,7 @@ export class DockRenderer {
     if(x<hostRect.left||x>hostRect.right||y<hostRect.top||y>hostRect.bottom)return null;
     const edge=32;let side=null;
     if(x-hostRect.left<edge)side='Left';else if(hostRect.right-x<edge)side='Right';else if(y-hostRect.top<edge)side='Top';else if(hostRect.bottom-y<edge)side='Bottom';
-    if(side&&this.manager.CanDockAt(payload.subject,this.manager.Layout,side))return{target:this.manager.Layout,position:side,rect:rectRelative(this.workspace.getBoundingClientRect(),hostRect),outer:true};
+    if(side&&!this.currentSurface?.floating&&this.manager.CanDockAt(payload.subject,this.manager.Layout,side))return{target:this.manager.Layout,position:side,rect:rectRelative(this.workspace.getBoundingClientRect(),hostRect),outer:true};
     const root=this.host.getRootNode();
     const hits=root.elementsFromPoint?root.elementsFromPoint(x,y):this.doc.elementsFromPoint(x,y);
     let pane=null,paneElement=null;
@@ -576,7 +619,7 @@ export class DockRenderer {
       }
     }
     for(const side of SIDES){
-      if(!this.manager.CanDockAt(payload.subject,this.manager.Layout,side))continue;
+      if(this.currentSurface?.floating||!this.manager.CanDockAt(payload.subject,this.manager.Layout,side))continue;
       const guide=element(this.doc,'div',`ad-drop-guide ad-root-guide ${drop?.outer&&drop.position===side?'ad-drop-guide-active':''}`);guide.dataset.rootDock=side;guide.append(icon(this.doc,side.toLowerCase(),20));
       const left=side==='Left'?7:side==='Right'?origin.width-43:origin.width/2-18;
       const top=side==='Top'?7:side==='Bottom'?origin.height-43:origin.height/2-18;
@@ -588,23 +631,26 @@ export class DockRenderer {
     }
   }
   trackPointer(event,callbacks) {
+    const surface=this.currentSurface||this.rootSurface;
+    callbacks=Object.fromEntries(Object.entries(callbacks).map(([key,value])=>[key,typeof value==='function'?(...args)=>this.withSurface(surface,()=>value(...args)):value]));
+    const doc=surface.doc,win=surface.win;
     event.preventDefault();
     const capture=event.currentTarget||event.target;
     try{capture.setPointerCapture?.(event.pointerId);}catch{}
-    const controller=new this.win.AbortController(),opts={signal:controller.signal,capture:true};let latest=null,frame=0,finished=false;
-    const cleanup=()=>{if(frame)this.win.cancelAnimationFrame(frame);controller.abort();try{capture.releasePointerCapture?.(event.pointerId);}catch{}this.interaction=null;this.doc.documentElement.classList.remove('ad-is-interacting');};
+    const controller=new win.AbortController(),opts={signal:controller.signal,capture:true};let latest=null,frame=0,finished=false;
+    const cleanup=()=>{if(frame)win.cancelAnimationFrame(frame);controller.abort();try{capture.releasePointerCapture?.(event.pointerId);}catch{}this.interaction=null;doc.documentElement.classList.remove('ad-is-interacting');};
     const cancel=()=>{if(finished)return;finished=true;cleanup();callbacks.cancel?.();};
-    this.interaction={type:callbacks.type,cancel};this.doc.documentElement.classList.add('ad-is-interacting');
-    this.doc.addEventListener('pointermove',e=>{
+    this.interaction={type:callbacks.type,cancel};doc.documentElement.classList.add('ad-is-interacting');
+    doc.addEventListener('pointermove',e=>{
       if(e.pointerId!==event.pointerId)return;e.preventDefault();latest=e;
-      if(!frame)frame=this.win.requestAnimationFrame(()=>{frame=0;const point=latest;latest=null;if(point&&!finished)callbacks.move?.(point);});
+      if(!frame)frame=win.requestAnimationFrame(()=>{frame=0;const point=latest;latest=null;if(point&&!finished)callbacks.move?.(point);});
     },opts);
-    this.doc.addEventListener('pointerup',e=>{
+    doc.addEventListener('pointerup',e=>{
       if(e.pointerId!==event.pointerId||finished)return;
-      if(frame){this.win.cancelAnimationFrame(frame);frame=0;}callbacks.move?.(e);finished=true;cleanup();callbacks.end?.(e);
+      if(frame){win.cancelAnimationFrame(frame);frame=0;}callbacks.move?.(e);finished=true;cleanup();callbacks.end?.(e);
     },opts);
-    this.doc.addEventListener('pointercancel',e=>{if(e.pointerId===event.pointerId)cancel();},opts);
-    this.doc.addEventListener('keydown',e=>{if(e.key==='Escape'){e.preventDefault();cancel();}},opts);
+    doc.addEventListener('pointercancel',e=>{if(e.pointerId===event.pointerId)cancel();},opts);
+    doc.addEventListener('keydown',e=>{if(e.key==='Escape'){e.preventDefault();cancel();}},opts);
   }
   cancelInteraction(){this.interaction?.cancel();}
   minSize(model,axis) {
@@ -710,44 +756,33 @@ export class DockRenderer {
   stepNavigator(delta){if(!this.navigator)return;this.navigatorIndex=(this.navigatorIndex+delta+this.navigatorItems.length)%this.navigatorItems.length;this.updateNavigator();}
   updateNavigator(){this.navigatorRows.forEach((row,index)=>{row.classList.toggle('ad-selected',index===this.navigatorIndex);row.setAttribute('aria-selected',String(index===this.navigatorIndex));});this.navigatorRows[this.navigatorIndex]?.scrollIntoView({block:'nearest'});}
   closeNavigator(commit){if(!this.navigator)return;const model=this.navigatorItems[this.navigatorIndex];this.navigator.remove();this.navigator=null;if(commit&&model){this.manager.Activate(model);this.focusContent(model);}else this.navigatorFocus?.focus({preventScroll:true});}
-  popOut(subject) {
-    const items=this.manager._subjectItems(subject);if(!items.length||!items.every(x=>x.CanFloat&&x.CanMove))return null;
-    let model=subject instanceof LayoutFloatingWindow?subject:subject.FindParent(LayoutFloatingWindow);
-    if(model&&this.popups.has(model.Id)){this.popups.get(model.Id).window.focus();return this.popups.get(model.Id).window;}
-    const popup=this.win.open('about:blank',`${this.manager.Id}-${subject.Id}`,`popup,width=${Math.round(model?.FloatingWidth||640)},height=${Math.round(model?.FloatingHeight||440)}`);
-    if(!popup){this.manager._emit('Error',{Error:new Error('The browser blocked this popup. Allow popups or use in-page floating windows.'),Operation:'Open browser window'});return null;}
-    if(!model)model=this.manager.Float(subject);if(!model){popup.close();return null;}
-    const doc=popup.document;doc.title=items[0].Title;
-    for(const source of this.doc.querySelectorAll('link[rel="stylesheet"],style')){
-      const clone=source.cloneNode(true);if(clone.tagName==='LINK')clone.href=source.href;doc.head.append(clone);
-    }
-    const style=doc.createElement('style');style.textContent='html,body{margin:0;width:100%;height:100%;overflow:hidden}.ad-popup-shell{display:flex;flex-direction:column;width:100%;height:100%}.ad-popup-toolbar{display:flex;align-items:center;padding:6px 10px;gap:10px;border-bottom:1px solid var(--ad-border);background:var(--ad-chrome);font:12px system-ui}.ad-popup-toolbar strong{flex:1}.ad-popup-body{flex:1;min-height:0;display:flex}.ad-popup-body>.ad-group,.ad-popup-body>.ad-content{flex:1}';doc.head.append(style);
-    const shell=element(doc,'div','ad-manager ad-popup-shell');shell.dataset.theme=this.host.dataset.theme;shell.tabIndex=0;
-    const bar=element(doc,'div','ad-popup-toolbar');bar.append(element(doc,'strong','',items[0].Title),button(doc,'dock','Dock back into workspace',()=>{const live=this.manager.FindById(model.Id);this.closePopup(model.Id);if(live)this.manager.Dock(live);}));
-    const body=element(doc,'div','ad-popup-body');shell.append(bar,body);doc.body.replaceChildren(shell);
-    const rec={window:popup,body,shell,modelId:model.Id,closing:false};this.popups.set(model.Id,rec);
-    popup.addEventListener('beforeunload',()=>this.closePopup(model.Id,false));
-    shell.addEventListener('keydown',event=>this.onKeyDown(event));shell.addEventListener('keyup',event=>this.onKeyUp(event));
-    shell.addEventListener('focusin',event=>{const id=event.target.closest?.('[data-ad-content]')?.dataset.adContent;if(id){const item=this.manager.Find(id);if(item)this.manager.Activate(item);}});
-    popup.addEventListener('resize',()=>{const live=this.manager.FindById(rec.modelId);if(!rec.closing&&live)this.manager.Transaction('Resize browser window',()=>{live.FloatingWidth=Math.max(220,popup.innerWidth);live.FloatingHeight=Math.max(140,popup.innerHeight);});});
-    this.requestRender();return popup;
-  }
-  renderPopup(model,popup){popup.shell.dataset.theme=this.host.dataset.theme;const root=model.RootPanel;if(root)this.sync(popup.body,[this.renderNode(root)]);}
-  closePopup(id,closeWindow=true){
-    const rec=this.popups.get(id);if(!rec||rec.closing)return;rec.closing=true;
-    for(const child of [...rec.body.children])moveNode(this.parking,child);
-    this.popups.delete(id);if(closeWindow&&!rec.window.closed)rec.window.close();this.requestRender();
-  }
+  popOut(subject) { return this.manager.PopOut(subject); }
+  renderPopup(model, popup) { return this.browserWindows.render(model, popup); }
+  closePopup(id, closeWindow = true) { this.browserWindows.close(id, { closeWindow }); }
   releaseContent(id){const rec=this.contentRecords.get(id);if(!rec)return;rec.dispose?.();rec.el.remove();this.contentRecords.delete(id);}
   dispose(){
     if(this.disposed)return;this.cancelInteraction();this.disposed=true;this.abort.abort();this.resizeObserver.disconnect();
-    if(this.frame)this.win.cancelAnimationFrame(this.frame);clearTimeout(this.hoverTimer);clearTimeout(this.peekCloseTimer);
-    for(const id of [...this.popups.keys()])this.closePopup(id);
+    this.cancelRenderFrame();clearTimeout(this.hoverTimer);clearTimeout(this.peekCloseTimer);
+    this.browserWindows.dispose();
     for(const rec of this.contentRecords.values())rec.dispose?.();
-    this.contentRecords.clear();this.records.clear();this.tabs.clear();this.splitters.clear();
+    this.contentRecords.clear();this.controls.clear();this.records.clear();this.tabs.clear();this.splitters.clear();
     this.host.replaceChildren(...this._originalNodes);this.host.className=this._oldClass;
     if(this._oldTabIndex==null)this.host.removeAttribute('tabindex');else this.host.setAttribute('tabindex',this._oldTabIndex);
     if(this._oldRole==null)this.host.removeAttribute('role');else this.host.setAttribute('role',this._oldRole);
     this.host.removeAttribute('aria-label');this.host.removeAttribute('data-theme');
   }
+}
+
+for (const name of ['beginDrag','beginSplitterResize','beginFloatingResize','beginPeekResize','onKeyDown','onKeyUp']) {
+  const method = DockRenderer.prototype[name];
+  DockRenderer.prototype[name] = function(event, ...args) {
+    return this.withSurface(this.surfaceFor(event.target?.ownerDocument), () => method.call(this, event, ...args));
+  };
+}
+for (const name of ['openContextMenu','openTabList']) {
+  const method = DockRenderer.prototype[name];
+  DockRenderer.prototype[name] = function(model, ...args) {
+    const doc = args[0]?.target?.ownerDocument || this.contentElement(model)?.ownerDocument || this.elementFor(model)?.ownerDocument;
+    return this.withSurface(this.surfaceFor(doc), () => method.call(this, model, ...args));
+  };
 }
