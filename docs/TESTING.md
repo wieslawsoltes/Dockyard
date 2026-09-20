@@ -1,65 +1,43 @@
-# Verification report
+# Verification report — 0.2.0
 
-> **Version 0.2.0:** Real browser-window floating is implemented alongside in-page
-> floating. See [BROWSER-WINDOWS.md](BROWSER-WINDOWS.md) for current configuration,
-> controls, events, persistence, cleanup and test coverage. Older pop-out-only
-> limitations in the baseline notes below are superseded by that contract;
-> unrelated WPF/runtime and native-platform boundaries remain unchanged.
+## Current release gates
 
-## Recorded result
+The feature validation runs **66 core tests**, strict TypeScript and actual-package installation checks, **34 existing Chromium interaction groups**, **21 new browser-window groups**, and **four HTTP-served demo entry checks**. All passed in [feature validation](https://github.com/wieslawsoltes/Dockyard/actions/runs/35490707403). The permanent PR/release workflow repeats validation on Node 22 and 24, with the browser tests on Node 24.
 
-**56/56 Node core tests, 34/34 Chromium browser groups, and the strict TypeScript integration check passed.** Full logs/reports are in `test-results/`. These counts are executable tests/grouped browser scenarios, not percentages of upstream AvalonDock coverage.
+The release workflow retains machine-readable `browser-results.json`, `windows-results.json` and `site-results.json` in the `verification-node-24` Actions artifact. Use the artifact from the exact commit being assessed. Older reports checked into `test-results/` are historical evidence, not a substitute for the current workflow result. Test counts are executable tests/grouped scenarios, not percentages of upstream API parity.
 
-Core tests run against source modules. Browser scenarios run the generated standalone distribution; an additional scenario loads the native ES-module source graph with browser import maps and executes the sample/preset operations independently of the packer. TypeScript checks the declared integration surface and expected rejection of invalid orientation, capability values and tool-pane document insertion.
+## Coverage and method
 
-## Environment and method
+Core tests run source modules and cover typed trees, cycle/ID checks, properties/events, collections, selection, docking, auto-hide, capabilities, cancellation, commands, serialization, history, source integration and disposal. The ten new cases cover hosting defaults/overrides, atomic validation, saved browser intent, grouped document floating and return locations, commands, stale models, floating-control collection events and group close cancellation.
 
-Node 22.16.0; Chromium 144.0.7559.96, headless; Python Playwright; TypeScript compiler version is recorded in `test-results/environment.json`.
+The existing browser suite exercises the standalone bundle and native ES-module graph, real DOM retention, drag/reorder/splits, auto-hide, resizing, menus/keyboard, sample controls, themes, XML import, custom elements, lazy content, same-document iframe movement and legacy PopOut behavior. Its 500-tab case constructs only the active content body; it does not represent 500 heavy editors or establish an FPS guarantee.
 
-The installed Chromium has an enterprise navigation policy restricting normal HTTP/file navigation. Tests therefore use `page.set_content` on an offline about:blank document containing the real standalone runtime. The ES-module scenario supplies local source text as data-module URLs through an import map. No enterprise policy was changed. Pointer, mouse, keyboard, actual DOM, native popup and real file-input change paths run in Chromium rather than a DOM mock.
+`tests/windows.py` serves an HTTP-origin fixture and opens real Chromium browsing contexts through button gestures. The 21 groups cover simultaneous windows, retained editors/listeners, live host conversion, safe close and cancellation, popup denial, child menus and keyboard, nested splitter mouse input, owner/child/child docking, token and capability checks, native within-child tab reorder, layout replacement, undo/redo and explicit resume, actual geometry, style propagation, disable/dispose cleanup, navigation, HTTP reload/storage, declarative options, content-host events, hidden-owner scheduling and maximize/restore.
 
-Opaque about:blank storage access can be denied. The suite checks safe handling, not successful cross-origin/reload durability. A normal target-browser deployment should additionally verify serving, its Content Security Policy, origin storage, popup policy and downloads. The native popup success scenario exercises window.open and the actual second browser window; a separate denial scenario tests the failure path.
+Cross-document tests dispatch `DragEvent` objects with a `DataTransfer` on the actual owner/child documents to exercise the shared drag pipeline. They are not an end-to-end native window-manager mouse drag. Within-child reorder uses a complete Playwright mouse drag. Splitters and buttons use browser input. The hidden-owner test controls visibility for deterministic scheduler coverage. Physical multi-monitor placement and OS-frame dragging are not tested.
 
-## Core coverage
-
-Observable events/properties and collections; GridLength and exact inspected strategy flags; typed trees, cycle/duplicate-ID prevention, ownership and invalid replacements; activation and pane selection; individual/group floating with return panes; interior/root-edge docking and document/tool restrictions; reorder and tab groups; mixed-orientation rules; grouped auto-hide; hide/show and cancelable close/hide; floating-close preflight; commands and enabled notifications; XML/JSON round-trips, content callbacks and known native-shaped fixtures; rejecting malformed/oversized/unknown layouts; history, batching, rollback and direct changes; observable sources and insertion strategies; explicit cross-manager transfer; unavailable storage; disposal.
-
-The fixtures were not round-tripped through a running .NET AvalonDock process. Matching inspected XML structure is not equivalent to that interoperability test.
-
-## Browser coverage
-
-The machine-readable `browser-results.json` lists every named case. Important groups exercise actual tab dragging/reorder/splits; docking guides and cancellation; Control-drag float; floating move/eight-grip resizing/maximize/restore/dock; tool-group dragging; auto-hide click/hover/pin; physical and keyboard splitter resizing; context menus/capabilities/cancelable DOM close; property inspector; keyboard MRU/tab/pane paths; source-driven content; themes and presets; app menu/palette; XML import through a file input; custom elements and manager isolation; factory cleanup and errors; touch PointerEvents; popup denial and native popup dock-back; iframe state-preserving same-document moves; popup dock-back after layout load; actual dimensions and locked splitters; native browser ES modules; and the separate minimal declarative example.
-
-The workload scenario adds 500 document models in a batch and verifies that only the active body is constructed. It is not 500 simultaneously live heavy editors and it does not establish a general FPS rate. The narrow viewport scenario is 760×800; this is not a certification for every phone size.
-
-Touch coverage dispatches touch-kind PointerEvents through the real handlers. It is not a physical touch/stylus hardware test. Separate-browser drag-and-drop between OS monitors was not validated or claimed.
+`scripts/verify-site.py` serves the GitHub Pages project base path and checks `index.html`, `standalone.html`, `sample/minimal.html`, and `sample/multi-window.html`. It verifies HTTP assets, application initialization, origin persistence, actual native-window editor movement and retained edits, nested tools and counter behavior, docking back, and screenshots. The Pages deployment job separately checks the live deployment commit and public asset/download URLs.
 
 ## Reproduce
 
 ```sh
-npm run build
-npm test
-npm run check
-CHROMIUM_EXECUTABLE=/path/to/chromium python tests/browser.py
-node scripts/api-surface.mjs
+npm ci
+npm run check:all
+node scripts/package-test.mjs
+python -m pip install -r requirements-test.txt
+python -m playwright install chromium
+# Set CHROMIUM_EXECUTABLE to the installed Playwright Chromium executable.
+npm run test:browser
+npm run test:windows
+python scripts/verify-site.py
 ```
 
-The first two commands need Node only. `check` requires TypeScript already available on PATH. Browser tests require Python Playwright and a Chromium executable already installed; this project intentionally does not perform package or browser downloads during its tests.
+CI installs the pinned browser-test requirements and exports Playwright's executable path. Tests do not download tools themselves. Node 22/24 and Python 3.12 are the CI matrix. Each browser JSON report records the actual Chromium version.
 
-## Still requires target-environment validation
+Local Chromium in the development container restricts HTTP/file navigation. Local checks used inline about:blank fixtures without altering browser policy: all 34 existing groups and 20 multi-window groups passed on Chromium 144.0.7559.96. `python tests/windows.py --offline` omits only genuine HTTP reload/storage. GitHub runs the full 21-group HTTP suite; the reduced local mode is not its release gate.
 
-Firefox and Safari; older browser fallbacks; real touch/stylus devices; screen-reader audits; application-specific Content Security Policy; storage across reloads on real origins; native .NET XML interchange; arbitrary custom themes/templates; integration with large third-party editors; application-level source/history coordination; and high-load memory/performance profiling. No production security audit or full native API-conformance suite has been completed.
+## Qualification boundaries
 
-## 0.2.0 browser-window suite
+No native .NET AvalonDock process was used to certify XML interchange or desktop event ordering. No full WPF runtime parity, screen-reader/WCAG certification, arbitrary document-delegated framework portals, physical touch/stylus, non-Chromium engine or physical multi-monitor qualification is claimed. Same-document iframe retention does not guarantee cross-document iframe context retention. Popup policy, COOP/CSP and browser window-manager restrictions must also be tested in the embedding application.
 
-`npm test` includes 66 core cases (10 new hosting/group/event cases).
-`npm run test:windows` runs 21 additional real HTTP-origin Chromium groups.
-`python tests/windows.py --offline` runs 20 of those groups from an inlined
-about:blank fixture when local browser navigation is restricted; it deliberately
-omits the true origin reload/storage test. CI always runs the HTTP suite. See
-`test-results/windows-results.json` in the verification artifact for the actual
-browser version and case results. No pass is inferred from a skipped mode.
-
-`npm run test:browser` retains the 34 existing groups. `npm run check` checks the
-old and new typed API. The package smoke test installs the actual tarball in a
-fresh temporary consumer and verifies exports, model lifecycle and TypeScript.
+The independent Blazor CI builds and tests its .NET 8/10 packages and existing WebAssembly/Interactive Server consumers. Those checks do not certify arbitrary Razor content moved into a different native document. Its NuGet version/release cycle is unchanged by the JavaScript 0.2.0 release.

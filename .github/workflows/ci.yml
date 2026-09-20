@@ -49,6 +49,9 @@ jobs:
       - name: Chromium interaction tests
         if: matrix.node == 24
         run: npm run test:browser
+      - name: Real browser-window interactions and lifecycle
+        if: matrix.node == 24
+        run: npm run test:windows
       - name: HTTP entry points, origin persistence and screenshots
         if: matrix.node == 24
         run: python scripts/verify-site.py
@@ -128,7 +131,7 @@ jobs:
             await delay(5_000);
           }
           assert.equal(info?.commit, process.env.EXPECTED_COMMIT, 'Published commit must match the verified build');
-          for (const name of ['', 'sample/minimal.html', 'standalone.html', 'src/index.js', 'dist/avalondock.js', 'dist/avalondock.css', `downloads/${info.packageFilename}`, 'downloads/dockyard-source.zip']) {
+          for (const name of ['', 'sample/minimal.html', 'sample/multi-window.html', 'standalone.html', 'src/index.js', 'dist/avalondock.js', 'dist/avalondock.css', `downloads/${info.packageFilename}`, 'downloads/dockyard-source.zip']) {
             const response = await fetch(new URL(name, process.env.SITE_URL));
             assert(response.ok, `${name}: HTTP ${response.status}`);
             await response.arrayBuffer();
