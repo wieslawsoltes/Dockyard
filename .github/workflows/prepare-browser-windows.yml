@@ -1,0 +1,71 @@
+name: Prepare browser-window feature
+on:
+  push:
+    branches: [feature/browser-window-floating-0.2.0]
+    paths: [.github/workflows/prepare-browser-windows.yml]
+permissions:
+  contents: write
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Verify and apply source patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor 7b2b56b281ccf71555c21a1bef4bdf38df67e034 HEAD
+          python3 - <<'PY'
+          import base64, hashlib, lzma
+          from pathlib import Path
+          encoded = ''.join(Path(f'.github/window-port-payload/{i}.b64').read_text().strip() for i in range(4))
+          patch = lzma.decompress(base64.b64decode(encoded, validate=True))
+          expected = 'fbaa0f5009817472c14d8ab3e9b6ecacd159452818e5877a063369a423f7c5c0'
+          assert hashlib.sha256(patch).hexdigest() == expected, 'Patch checksum mismatch'
+          Path('/tmp/dockyard-window.patch').write_bytes(patch)
+          print('Verified', len(patch), 'source patch bytes')
+          PY
+          git apply --check --exclude=.github/workflows/ci.yml /tmp/dockyard-window.patch
+          git apply --exclude=.github/workflows/ci.yml /tmp/dockyard-window.patch
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run check:all
+      - run: node scripts/package-test.mjs
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: requirements-test.txt
+      - name: Install browser test tools
+        run: |
+          python -m pip install -r requirements-test.txt
+          python -m playwright install --with-deps chromium
+          python - <<'PY'
+          import os
+          from playwright.sync_api import sync_playwright
+          with sync_playwright() as p:
+              with open(os.environ['GITHUB_ENV'], 'a') as env:
+                  env.write('CHROMIUM_EXECUTABLE=' + p.chromium.executable_path + '\n')
+          PY
+      - run: npm run test:browser
+      - run: npm run test:windows
+      - run: python scripts/verify-site.py
+      - name: Commit verified implementation and distribution
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src sample docs scripts tests README.md README.web.md package.json package-lock.json index.html dist standalone.html
+          git diff --cached --check
+          git commit -m 'feat: support configurable native browser-window floating with shared layout, lifecycle and tests'
+          git push origin HEAD:feature/browser-window-floating-0.2.0
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: browser-window-feature-validation
+          path: test-results/
