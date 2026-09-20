@@ -1,5 +1,11 @@
 # API guide
 
+> **Version 0.2.0:** Real browser-window floating is implemented alongside in-page
+> floating. See [BROWSER-WINDOWS.md](BROWSER-WINDOWS.md) for current configuration,
+> controls, events, persistence, cleanup and test coverage. Older pop-out-only
+> limitations in the baseline notes below are superseded by that contract;
+> unrelated WPF/runtime and native-platform boundaries remain unchanged.
+
 The authoritative declarations for this release are `src/index.d.ts`; the generated export/method/property inventory is `docs/API-SURFACE.json`. Examples below assume imported names from `src/index.js` and an existing manager unless shown otherwise.
 
 ## 1. Entry points and namespaces

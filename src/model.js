@@ -1,3 +1,4 @@
+import { isFloatingWindowMode } from './floating-window.js';
 import { ObservableObject, ObservableCollection, EventSignal, CancelEventArgs, properties, getSchema, GridLength, finite, positive, boolean, uid } from './events.js';
 export { ObservableCollection, GridLength } from './events.js';
 export const AnchorSide = Object.freeze({ Left: 'Left', Top: 'Top', Right: 'Right', Bottom: 'Bottom' });
@@ -171,7 +172,7 @@ export class LayoutContent extends LayoutElement {
   get IsDocked() { return this.IsVisible && !this.IsFloating && !this.IsAutoHidden; }
   get IsAutoHidden() { return false; }
   Activate() { if (this.Manager) this.Manager.Activate(this); else this._setActive(true); return this; }
-  Float() { return this.Manager ? this.Manager.Float(this) : false; }
+  Float(bounds = {}) { return this.Manager ? this.Manager.Float(this, bounds) : false; }
   Dock() { return this.Manager ? this.Manager.Dock(this) : false; }
   DockAsDocument() { return this.Manager ? this.Manager.DockAsDocument(this) : false; }
   Close() {
@@ -183,6 +184,7 @@ export class LayoutContent extends LayoutElement {
   }
 }
 properties(LayoutContent, {
+  FloatingWindowMode: { default: null, validate: x => x == null || isFloatingWindowMode(x) },
   Title: { default: '', coerce: x => String(x ?? '') },
   ContentId: { default: null, coerce: x => x == null ? null : String(x) },
   Content: { default: null, serialize: false },
@@ -283,6 +285,7 @@ export class LayoutFloatingWindow extends LayoutGroup {
   set RootPanel(value) { if (this.RootPanel === value) return; if (value) { if (this.ChildrenCount) this.Children.Set(0, value); else this.Children.Add(value); } else this.Children.Clear(); }
 }
 properties(LayoutFloatingWindow, {
+  FloatingWindowMode: { default: 'InPage', validate: isFloatingWindowMode },
   FloatingLeft: { default: 60, coerce: finite }, FloatingTop: { default: 60, coerce: finite },
   FloatingWidth: { default: 480, coerce: positive }, FloatingHeight: { default: 320, coerce: positive },
   IsMaximized: { default: false, coerce: boolean }, ZIndex: { default: 1, coerce: finite }

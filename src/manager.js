@@ -3,8 +3,9 @@ import { LayoutRoot, LayoutPanel, LayoutContent, LayoutDocument, LayoutAnchorabl
 import { snapshot, hydrate, JsonLayoutSerializer, XmlLayoutSerializer } from './serialization.js';
 import { LayoutDocumentItem, LayoutAnchorableItem } from './items.js';
 import { DockRenderer } from './view.js';
+import { isFloatingWindowMode, BrowserWindowFallback, BrowserWindowCloseBehavior, LayoutFloatingWindowControlCollectionChangedEventArgs } from './floating-window.js';
 
-const EVENTS = ['ActiveContentChanged','DocumentClosing','DocumentClosed','AnchorableClosing','AnchorableClosed','AnchorableHiding','AnchorableHidden','LayoutChanging','LayoutChanged','LayoutUpdated','LayoutFloatingWindowControlCreated','LayoutFloatingWindowControlClosed','HistoryChanged','Error','ContentMoved','ThemeChanged'];
+const EVENTS = ['ActiveContentChanged','DocumentClosing','DocumentClosed','AnchorableClosing','AnchorableClosed','AnchorableHiding','AnchorableHidden','LayoutChanging','LayoutChanged','LayoutUpdated','LayoutFloatingWindowControlCreated','LayoutFloatingWindowControlClosed','HistoryChanged','Error','ContentMoved','ThemeChanged','BrowserWindowOpened','BrowserWindowClosed','BrowserWindowBlocked','BrowserWindowBoundsChanged','ContentHostChanged','LayoutFloatingWindowControlCollectionChanged'];
 function identitySnapshot(value) {
   return JSON.stringify(value, (key, val) => ['LastActivationTimeStamp','activeContentId','lastFocusedDocumentId','IsSelected'].includes(key) ? undefined : val);
 }
@@ -15,7 +16,7 @@ export class DockingManager extends ObservableObject {
     if (!hostOrOptions?.nodeType) options = hostOrOptions || {};
     for (const name of EVENTS) this[name] = new EventSignal();
     this.Id = uid('manager'); this.Host = null; this._view = null;
-    this._registry = new Map(); this._items = new Map(); this._sources = new Map();
+    this._floatingState = new Map(); this._registry = new Map(); this._items = new Map(); this._sources = new Map();
     this._undo = []; this._redo = []; this._depth = 0; this._suspended = 1; this._pendingBefore = null;
     this._queued = false; this._disposed = false; this._mru = []; this._autoHideModel = null;
     this._layout = new LayoutRoot({ RootPanel: new LayoutPanel({ Children: [new LayoutDocumentPane()] }) });
@@ -31,6 +32,7 @@ export class DockingManager extends ObservableObject {
     if (options.AnchorablesSource) this.AnchorablesSource = options.AnchorablesSource;
     this._normalize(); this._registerContents(); this._suspended = 0;
     this._lastSnapshot = snapshot(this.Layout);
+    this._floatingState = new Map(this.Layout.FloatingWindows.map(x => [x.Id, { model: x, control: null }]));
     if (host) this.Attach(host);
     if (this.StorageKey && this.RestoreOnLoad) this.LoadFromStorage();
   }
@@ -57,6 +59,8 @@ export class DockingManager extends ObservableObject {
   set ActiveContent(value) { this.Activate(value); }
   get ActiveModel() { return this.Layout.ActiveContent; }
   get FloatingWindows() { return this.Layout.FloatingWindows.ToArray().map(x => this._view?.controlFor(x) || x); }
+  get BrowserWindows() { return this.FloatingWindows.filter(x => x.IsBrowserWindow); }
+  get PendingBrowserWindows() { return this.Layout.FloatingWindows.filter(x => x.FloatingWindowMode === 'BrowserWindow' && !this._view?.popups.has(x.Id)); }
   get AutoHideWindow() { return this._autoHideModel ? { Model: this._autoHideModel, Element: this._view?.peek || null, Hide: () => this.HideAutoHideWindow() } : null; }
   get LayoutRootPanel() { return this._view?.elementFor(this.Layout.RootPanel) || null; }
   get LeftSidePanel() { return this._view?.sideElements.Left || null; }
@@ -128,6 +132,9 @@ export class DockingManager extends ObservableObject {
     this._suspended++;
     try {
       this._registerContents();
+      for (const floating of this.Layout.FloatingWindows) {
+        if (floating instanceof LayoutDocumentFloatingWindow && floating.RootPanel instanceof LayoutDocument) floating.RootPanel = new LayoutDocumentPane({ Children: [floating.RootPanel] });
+      }
       this.Layout.CollectGarbage();
       if (![...this.Layout.RootPanel.Descendents()].some(x => x instanceof LayoutDocumentPane)) this.Layout.RootPanel.Children.Add(new LayoutDocumentPane());
       const all = contents(this.Layout);
@@ -151,11 +158,26 @@ export class DockingManager extends ObservableObject {
       this._redo.length = 0; this._emit('HistoryChanged', { CanUndo: this.CanUndo, CanRedo: this.CanRedo, Label: label });
     }
     this._pendingBefore = null; this._lastSnapshot = after;
+    this._syncFloatingControls();
     for (const item of this._items.values()) item.RaiseCanExecuteChanged();
     this.Layout.Updated.emit(this.Layout, {});
     this._emit('LayoutUpdated', { Layout: this.Layout, Label: label });
     this._view?.requestRender();
     if (this.StorageKey && this.AutoSave) this.SaveToStorage();
+  }
+  _syncFloatingControls() {
+    const previous = this._floatingState;
+    const next = new Map(this.Layout.FloatingWindows.map(model => [model.Id, { model, control: this.CreateUIElementForModel(model) }]));
+    this._floatingState = next;
+    const notify = (action, entry) => {
+      const value = entry.control || entry.model;
+      this._emit(action === 'Add' ? 'LayoutFloatingWindowControlCreated' : 'LayoutFloatingWindowControlClosed', { Model: entry.model, Control: entry.control });
+      this._emit('LayoutFloatingWindowControlCollectionChanged', new LayoutFloatingWindowControlCollectionChangedEventArgs({
+        Action: action, NewItems: action === 'Add' ? [value] : [], OldItems: action === 'Remove' ? [value] : []
+      }));
+    };
+    for (const [id, entry] of previous) if (next.get(id)?.model !== entry.model) notify('Remove', entry);
+    for (const [id, entry] of next) if (previous.get(id)?.model !== entry.model) notify('Add', entry);
   }
   Transaction(label, action) {
     if (typeof label === 'function') { action = label; label = 'Edit layout'; }
@@ -293,41 +315,96 @@ export class DockingManager extends ObservableObject {
     }
   }
   Float(subject, bounds = {}) {
+    if (this._disposed) throw new Error('DockingManager has been disposed');
     const list = this._subjectItems(subject);
     if (!list.length || !list.every(x => x.Root === this.Layout && x.CanFloat && x.CanMove && x.IsEnabled)) return false;
-    if (subject instanceof LayoutDocumentPane || subject instanceof LayoutDocumentPaneGroup) return false;
-    return this.Transaction('Float window', () => {
-      if (subject instanceof LayoutFloatingWindow) {
-        for (const name of ['FloatingLeft','FloatingTop','FloatingWidth','FloatingHeight']) if (bounds[name] != null) subject[name] = bounds[name];
-        return subject;
+    // Reuse a single-content floating model; floating a tab out of a group still
+    // creates its own window. Explicit window/group subjects keep all descendants.
+    const ancestor = subject instanceof LayoutContent ? subject.FindParent(LayoutFloatingWindow) : null;
+    if (ancestor && contents(ancestor).length === 1) subject = ancestor;
+    let mode = bounds.FloatingWindowMode ?? (subject instanceof LayoutFloatingWindow ? subject.FloatingWindowMode : list[0].FloatingWindowMode ?? this.FloatingWindowMode);
+    if (!isFloatingWindowMode(mode)) throw new TypeError('Invalid FloatingWindowMode');
+    for (const key of ['FloatingLeft','FloatingTop','FloatingWidth','FloatingHeight']) {
+      if (bounds[key] != null && (!Number.isFinite(Number(bounds[key])) || (key.includes('Width') || key.includes('Height')) && Number(bounds[key]) < 0)) throw new TypeError(`Invalid ${key}`);
+    }
+    const fallback = bounds.BrowserWindowFallback ?? this.BrowserWindowFallback;
+    if (!Object.hasOwn(BrowserWindowFallback, fallback)) throw new TypeError('Invalid BrowserWindowFallback');
+    const host = this._view?.browserWindows;
+    let reservation = null;
+    if (mode === 'BrowserWindow' && host) {
+      reservation = host.reserve(subject, { ...bounds, BrowserWindowFallback: fallback });
+      if (!reservation) {
+        if (fallback === 'Cancel') return false;
+        mode = 'InPage';
       }
-      for (const item of list) this._remember(item);
-      const seed = list[0];
-      const metrics = Object.fromEntries(['FloatingLeft','FloatingTop','FloatingWidth','FloatingHeight'].map(key => [key, bounds[key] ?? seed[key]]));
-      metrics.FloatingWidth = Math.max(this.FloatingWindowMinWidth, metrics.FloatingWidth || 480);
-      metrics.FloatingHeight = Math.max(this.FloatingWindowMinHeight, metrics.FloatingHeight || 320);
-      let floating;
-      if (subject instanceof LayoutDocument) floating = new LayoutDocumentFloatingWindow({ ...metrics, RootDocument: subject });
-      else {
-        let panel;
-        if (subject instanceof LayoutAnchorablePaneGroup) panel = this._copyFloatingGroup(subject);
-        else if (subject instanceof LayoutAnchorablePane) panel = new LayoutAnchorablePaneGroup({ Children: [this._copyFloatingGroup(subject)] });
-        else panel = new LayoutAnchorablePaneGroup({ Children: [new LayoutAnchorablePane({ Children: list })] });
-        floating = new LayoutAnchorableFloatingWindow({ ...metrics, RootPanel: panel });
+    } else if (mode === 'BrowserWindow' && !this.AllowBrowserWindows) {
+      if (fallback === 'Cancel') return false;
+      mode = 'InPage';
+    }
+    try {
+      return this.Transaction('Float window', () => {
+        let floating;
+        if (subject instanceof LayoutFloatingWindow) {
+          floating = subject;
+          if (mode === 'InPage' && floating.FloatingWindowMode === 'BrowserWindow') {
+            floating.FloatingLeft = 40; floating.FloatingTop = 40; floating.IsMaximized = false;
+          }
+          for (const key of ['FloatingLeft','FloatingTop','FloatingWidth','FloatingHeight']) if (bounds[key] != null) floating[key] = bounds[key];
+        } else {
+          for (const item of list) this._remember(item);
+          const seed = list[0];
+          const metrics = Object.fromEntries(['FloatingLeft','FloatingTop','FloatingWidth','FloatingHeight'].map(key => [key, bounds[key] ?? seed[key]]));
+          metrics.FloatingWidth = Math.max(this.FloatingWindowMinWidth, metrics.FloatingWidth || 480);
+          metrics.FloatingHeight = Math.max(this.FloatingWindowMinHeight, metrics.FloatingHeight || 320);
+          if (subject instanceof LayoutDocument || subject instanceof LayoutDocumentPane || subject instanceof LayoutDocumentPaneGroup) {
+            const panel = subject instanceof LayoutDocument ? new LayoutDocumentPane({ Children: [subject] }) : this._copyFloatingGroup(subject);
+            floating = new LayoutDocumentFloatingWindow({ ...metrics, RootPanel: panel });
+          } else {
+            let panel;
+            if (subject instanceof LayoutAnchorablePaneGroup) panel = this._copyFloatingGroup(subject);
+            else if (subject instanceof LayoutAnchorablePane) panel = new LayoutAnchorablePaneGroup({ Children: [this._copyFloatingGroup(subject)] });
+            else panel = new LayoutAnchorablePaneGroup({ Children: [new LayoutAnchorablePane({ Children: list })] });
+            floating = new LayoutAnchorableFloatingWindow({ ...metrics, RootPanel: panel });
+          }
+          this.Layout.FloatingWindows.Add(floating);
+        }
+        floating.FloatingWindowMode = mode;
+        if (reservation && !host.attach(floating, reservation)) {
+          if (fallback === 'Cancel') throw new Error('Unable to initialize browser-window host');
+          floating.FloatingWindowMode = 'InPage';
+        } else if (mode === 'InPage') host?.close(floating.Id);
+        this._autoHideModel = null; this.Activate(list[0]);
+        this._emit('ContentMoved', { Contents: list, Operation: 'Float', Model: floating });
+        return floating;
+      });
+    } catch (error) {
+      if (reservation?.reserved) {
+        const rec = [...(this._view?.popups.values() || [])].find(x => x.window === reservation.window);
+        if (rec) host.close(rec.modelId, { reason: 'Rollback' });
+        else try { reservation.window.close(); } catch {}
       }
-      this.Layout.FloatingWindows.Add(floating);
-      this._autoHideModel = null; this.Activate(seed);
-      this._emit('LayoutFloatingWindowControlCreated', { Model: floating });
-      this._emit('ContentMoved', { Contents: list, Operation: 'Float' });
-      return floating;
-    });
+      throw error;
+    }
+  }
+  FloatInPage(subject, bounds = {}) { return this.Float(subject, { ...bounds, FloatingWindowMode: 'InPage' }); }
+  FloatInBrowserWindow(subject, bounds = {}) { return this.Float(subject, { ...bounds, FloatingWindowMode: 'BrowserWindow' }); }
+  // Restored native windows are shown in-page until explicitly resumed in a
+  // user gesture. Do not repeatedly request blocked popups from render().
+  RestoreBrowserWindows() {
+    const opened = [];
+    for (const model of [...this.PendingBrowserWindows]) {
+      const result = this.FloatInBrowserWindow(model, { BrowserWindowFallback: 'Cancel' });
+      const window = result && this._view?.popups.get(result.Id)?.window;
+      if (window) opened.push(window);
+    }
+    return opened;
   }
   _copyFloatingGroup(source) {
     // Keep the original panes as hidden return anchors. Content nodes are moved,
     // never cloned, so each item still has an unambiguous dock-back location.
     const options = {};
     for (const key of Object.keys(getSchema(source.constructor))) if (key !== 'Id' && !key.startsWith('Actual')) options[key] = source[key];
-    options.Children = source instanceof LayoutAnchorablePane ? [...source.Children] : [...source.Children].map(child => this._copyFloatingGroup(child));
+    options.Children = source instanceof LayoutPane ? [...source.Children] : [...source.Children].map(child => this._copyFloatingGroup(child));
     return new source.constructor(options);
   }
   CanDockAt(subject, target, position = 'Center') {
@@ -513,6 +590,7 @@ export class DockingManager extends ObservableObject {
     this.Transaction('Close documents', () => { for (const item of list) if (item !== except && this.Close(item)) closed++; }); return closed;
   }
   CloseFloatingWindow(floating) {
+    if (!(floating instanceof LayoutFloatingWindow) || floating.Root !== this.Layout) return false;
     const list = contents(floating), actions = [];
     for (const item of list) {
       if (item instanceof LayoutAnchorable && item.CanHide) {
@@ -522,10 +600,15 @@ export class DockingManager extends ObservableObject {
     }
     return this.Transaction('Close floating window', () => {
       for (const [item, action] of actions) { if (action === 'hide') this.Hide(item, false); else this._removeClosed(item); }
-      this.Layout.FloatingWindows.Remove(floating); this._emit('LayoutFloatingWindowControlClosed', { Model: floating }); return true;
+      this.Layout.FloatingWindows.Remove(floating); return true;
     });
   }
-  PopOut(item) { return this._view?.popOut(item) || null; }
+  PopOut(item) {
+    if (!this._view) return null;
+    const subject = item instanceof LayoutFloatingWindow ? item : item?.FindParent?.(LayoutFloatingWindow) || item;
+    const model = this.FloatInBrowserWindow(subject, { BrowserWindowFallback: 'Cancel' });
+    return model ? this._view.popups.get(model.Id)?.window || null : null;
+  }
   FocusNextPane(reverse = false) {
     const panes = [...this.Layout.Descendents()].filter(x => x instanceof LayoutPane && x.ChildrenCount && x.IsVisible);
     if (!panes.length) return;
@@ -634,6 +717,11 @@ export class DockingManager extends ObservableObject {
   }
 }
 properties(DockingManager, {
+  FloatingWindowMode: { default: 'InPage', validate: isFloatingWindowMode },
+  AllowBrowserWindows: { default: true, coerce: boolean },
+  EnableCrossWindowDocking: { default: true, coerce: boolean },
+  BrowserWindowFallback: { default: 'InPage', validate: x => Object.hasOwn(BrowserWindowFallback, x) },
+  BrowserWindowCloseBehavior: { default: 'Dock', validate: x => Object.hasOwn(BrowserWindowCloseBehavior, x) },
   AllowMixedOrientation: { default: false, coerce: boolean }, Theme: { default: 'dark' },
   GridSplitterWidth: { default: 5, coerce: positive }, GridSplitterHeight: { default: 5, coerce: positive },
   FloatingWindowMinWidth: { default: 220, coerce: positive }, FloatingWindowMinHeight: { default: 140, coerce: positive },

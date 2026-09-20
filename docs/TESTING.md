@@ -1,5 +1,11 @@
 # Verification report
 
+> **Version 0.2.0:** Real browser-window floating is implemented alongside in-page
+> floating. See [BROWSER-WINDOWS.md](BROWSER-WINDOWS.md) for current configuration,
+> controls, events, persistence, cleanup and test coverage. Older pop-out-only
+> limitations in the baseline notes below are superseded by that contract;
+> unrelated WPF/runtime and native-platform boundaries remain unchanged.
+
 ## Recorded result
 
 **56/56 Node core tests, 34/34 Chromium browser groups, and the strict TypeScript integration check passed.** Full logs/reports are in `test-results/`. These counts are executable tests/grouped browser scenarios, not percentages of upstream AvalonDock coverage.
@@ -43,3 +49,17 @@ The first two commands need Node only. `check` requires TypeScript already avail
 ## Still requires target-environment validation
 
 Firefox and Safari; older browser fallbacks; real touch/stylus devices; screen-reader audits; application-specific Content Security Policy; storage across reloads on real origins; native .NET XML interchange; arbitrary custom themes/templates; integration with large third-party editors; application-level source/history coordination; and high-load memory/performance profiling. No production security audit or full native API-conformance suite has been completed.
+
+## 0.2.0 browser-window suite
+
+`npm test` includes 66 core cases (10 new hosting/group/event cases).
+`npm run test:windows` runs 21 additional real HTTP-origin Chromium groups.
+`python tests/windows.py --offline` runs 20 of those groups from an inlined
+about:blank fixture when local browser navigation is restricted; it deliberately
+omits the true origin reload/storage test. CI always runs the HTTP suite. See
+`test-results/windows-results.json` in the verification artifact for the actual
+browser version and case results. No pass is inferred from a skipped mode.
+
+`npm run test:browser` retains the 34 existing groups. `npm run check` checks the
+old and new typed API. The package smoke test installs the actual tarball in a
+fresh temporary consumer and verifies exports, model lifecycle and TypeScript.

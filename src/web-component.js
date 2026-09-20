@@ -36,7 +36,7 @@ export function parseLayoutElement(element) {
   return model;
 }
 export class AvalonDockElement extends HTMLElementBase {
-  static get observedAttributes(){return['theme','dir'];}
+  static get observedAttributes(){return['theme','dir','floating-window-mode','browser-window-close-behavior','allow-browser-windows'];}
   connectedCallback(){
     if(this.manager)return;
     queueMicrotask(()=>{
@@ -44,12 +44,12 @@ export class AvalonDockElement extends HTMLElementBase {
       const definition=[...this.children].find(child=>child.localName.replace(/-/g,'').toLowerCase()==='layoutroot');
       const layout=this._layout||(definition?parseLayoutElement(definition):null);
       definition?.remove();
-      this.manager=new DockingManager(this,{...(this.options||{}),...(layout?{Layout:layout}:{}),Theme:this.getAttribute('theme')||this.options?.Theme||'dark',FlowDirection:this.getAttribute('dir')==='rtl'?'RightToLeft':'LeftToRight'});
+      this.manager=new DockingManager(this,{...(this.options||{}),...(this.hasAttribute('floating-window-mode')?{FloatingWindowMode:this.getAttribute('floating-window-mode')}:{}),...(this.hasAttribute('browser-window-close-behavior')?{BrowserWindowCloseBehavior:this.getAttribute('browser-window-close-behavior')}:{}),...(this.hasAttribute('allow-browser-windows')?{AllowBrowserWindows:this.getAttribute('allow-browser-windows')!=='false'}:{}),...(layout?{Layout:layout}:{}),Theme:this.getAttribute('theme')||this.options?.Theme||'dark',FlowDirection:this.getAttribute('dir')==='rtl'?'RightToLeft':'LeftToRight'});
       this.dispatchEvent(new CustomEvent('ready',{detail:{manager:this.manager},bubbles:true}));
     });
   }
   disconnectedCallback(){queueMicrotask(()=>{if(!this.isConnected&&this.manager){this._layout=this.manager.Layout;this.manager.Dispose();this.manager=null;}});}
-  attributeChangedCallback(name,_old,value){if(!this.manager)return;if(name==='theme')this.manager.Theme=value||'dark';if(name==='dir')this.manager.FlowDirection=value==='rtl'?'RightToLeft':'LeftToRight';}
+  attributeChangedCallback(name,_old,value){if(!this.manager)return;if(name==='floating-window-mode')this.manager.FloatingWindowMode=value||'InPage';if(name==='browser-window-close-behavior')this.manager.BrowserWindowCloseBehavior=value||'Dock';if(name==='allow-browser-windows')this.manager.AllowBrowserWindows=value!=='false';if(name==='theme')this.manager.Theme=value||'dark';if(name==='dir')this.manager.FlowDirection=value==='rtl'?'RightToLeft':'LeftToRight';}
   get Layout(){return this.manager?.Layout||this._layout||null;}
   set Layout(value){if(this.manager)this.manager.Layout=value;else this._layout=value;}
   get DockingManager(){return this.manager;}

@@ -42,7 +42,7 @@ def main():
             headless=True, args=['--no-sandbox'])
         browser_version = browser.version
         try:
-            for entry in ['', 'standalone.html', 'sample/minimal.html']:
+            for entry in ['', 'standalone.html', 'sample/minimal.html', 'sample/multi-window.html']:
                 context = browser.new_context(viewport={'width': 1600, 'height': 1040})
                 page = context.new_page()
                 page.set_default_timeout(15000)
@@ -52,7 +52,26 @@ def main():
                 try:
                     response = page.goto(url + entry, wait_until='networkidle')
                     assert response and response.ok, f'Failed to load {entry or "index.html"}'
-                    if entry == 'sample/minimal.html':
+                    if entry == 'sample/multi-window.html':
+                        page.wait_for_function('!!window.multiWindowDemo')
+                        with page.expect_popup() as native:
+                            page.locator('#native').click()
+                        child = native.value
+                        child.on('pageerror', lambda error: errors.append(str(error)))
+                        field = child.get_by_role('textbox', name='Workspace.js text')
+                        field.fill('// native-window smoke')
+                        child.get_by_role('button', name='Dock back into workspace').click()
+                        page.wait_for_function('multiWindowDemo.manager.BrowserWindows.length === 0')
+                        assert page.get_by_role('textbox', name='Workspace.js text').input_value() == '// native-window smoke'
+                        with page.expect_popup() as native:
+                            page.locator('#group').click()
+                        child = native.value
+                        child.get_by_role('button', name='Counter: 0').click()
+                        child.get_by_role('button', name='Move to in-page floating window').click()
+                        page.get_by_role('button', name='Counter: 1').wait_for()
+                        page.locator('#dockback').click()
+                        assert page.evaluate('multiWindowDemo.A.validateLayout(multiWindowDemo.manager.Layout).contents') == 4
+                    elif entry == 'sample/minimal.html':
                         page.wait_for_function('!!document.querySelector("avalon-dock").manager')
                         field = page.get_by_role('textbox', name='Minimal editor')
                         field.fill('Published reusable component')

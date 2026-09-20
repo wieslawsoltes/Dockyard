@@ -1,5 +1,11 @@
 # Compatibility and capability boundaries
 
+> **Version 0.2.0:** Real browser-window floating is implemented alongside in-page
+> floating. See [BROWSER-WINDOWS.md](BROWSER-WINDOWS.md) for current configuration,
+> controls, events, persistence, cleanup and test coverage. Older pop-out-only
+> limitations in the baseline notes below are superseded by that contract;
+> unrelated WPF/runtime and native-platform boundaries remain unchanged.
+
 Version: 0.1.0. Status refers to the code and tests delivered here, not an assertion of complete AvalonDock feature parity.
 
 ## Meaning of “same API” in this package

@@ -7,6 +7,8 @@ export class LayoutItem extends ObservableObject {
     const command = (name, execute, canExecute) => { this[name] = new RelayCommand(execute, canExecute); };
     command('ActivateCommand', () => manager.Activate(model), () => model.IsEnabled && model.Root === manager.Layout);
     command('CloseCommand', () => model.Close(), () => model.CanClose && model.Root === manager.Layout);
+    command('FloatInPageCommand', () => manager.FloatInPage(model), () => model.CanFloat && model.CanMove && model.IsEnabled && model.Root === manager.Layout);
+    command('FloatInBrowserWindowCommand', () => manager.FloatInBrowserWindow(model), () => manager.AllowBrowserWindows && model.CanFloat && model.CanMove && model.IsEnabled && model.Root === manager.Layout);
     command('FloatCommand', () => model.Float(), () => model.CanFloat && model.CanMove && !model.IsFloating);
     command('DockAsDocumentCommand', () => model.DockAsDocument(), () => model.CanDock && model.CanMove && !(model.Parent instanceof LayoutDocumentPane) && (!(model instanceof LayoutAnchorable) || model.CanDockAsTabbedDocument));
     command('CloseAllButThisCommand', () => manager.CloseAll(model, model.Parent instanceof LayoutDocumentPane ? model.Parent : null), () => model.Parent instanceof LayoutDocumentPane && model.Parent.ChildrenCount > 1);

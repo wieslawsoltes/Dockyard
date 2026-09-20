@@ -1,8 +1,10 @@
-/* AvalonDock Web 0.1.0 — original JavaScript implementation, MIT. */
+/* AvalonDock Web 0.2.0 — original JavaScript implementation, MIT. */
 (function(global){'use strict';
 const __base=typeof document!=='undefined'?(document.currentScript?.src||location.href):'file:///avalondock.js';
 const __modules={"index.js":function(__exports,__require){
 Object.assign(__exports,__require("events.js"));
+Object.assign(__exports,__require("floating-window.js"));
+const WindowHosting=__require("floating-window.js");
 Object.assign(__exports,__require("model.js"));
 Object.assign(__exports,__require("manager.js"));
 Object.assign(__exports,__require("serialization.js"));
@@ -21,8 +23,8 @@ const { AvalonDockElement, registerAvalonDock }=__require("web-component.js");
 
 const Layout = Object.freeze({ ...Models, Serialization });
 const Commands = Object.freeze({ RelayCommand: Events.RelayCommand });
-const version = '0.1.0';
-const AvalonDock = Object.freeze({ ...Models, ...Serialization, ...Themes, ...Controls, ...Events, ...Items, DockingManager, AvalonDockElement, registerAvalonDock, Layout, Controls, Themes, Serialization, Commands, version });
+const version = '0.2.0';
+const AvalonDock = Object.freeze({ ...Models, ...Serialization, ...Themes, ...Controls, ...Events, ...Items, ...WindowHosting, DockingManager, AvalonDockElement, registerAvalonDock, Layout, Controls, Themes, Serialization, Commands, version });
 __exports.default=AvalonDock;
 
 __exports.Layout=Layout;
@@ -33,7 +35,28 @@ __exports.Controls=Controls;
 __exports.Themes=Themes;
 __exports.Serialization=Serialization;
 },
+"floating-window.js":function(__exports,__require){
+/** Web hosting extensions. Existing AvalonDock Float/Dock operations are unchanged. */
+const FloatingWindowMode = Object.freeze({ InPage: 'InPage', BrowserWindow: 'BrowserWindow' });
+const BrowserWindowCloseBehavior = Object.freeze({ Dock: 'Dock', InPage: 'InPage', Close: 'Close' });
+const BrowserWindowFallback = Object.freeze({ InPage: 'InPage', Cancel: 'Cancel' });
+function isFloatingWindowMode(value) { return Object.hasOwn(FloatingWindowMode, value); }
+
+/** AvalonDock-shaped wrapper around an observable floating-control change. */
+class LayoutFloatingWindowControlCollectionChangedEventArgs {
+  constructor(collectionChangedEventArgs) {
+    Object.defineProperty(this, 'CollectionChangedEventArgs', { value: collectionChangedEventArgs, enumerable: true });
+  }
+}
+
+__exports.FloatingWindowMode=FloatingWindowMode;
+__exports.BrowserWindowCloseBehavior=BrowserWindowCloseBehavior;
+__exports.BrowserWindowFallback=BrowserWindowFallback;
+__exports.isFloatingWindowMode=isFloatingWindowMode;
+__exports.LayoutFloatingWindowControlCollectionChangedEventArgs=LayoutFloatingWindowControlCollectionChangedEventArgs;
+},
 "model.js":function(__exports,__require){
+const { isFloatingWindowMode }=__require("floating-window.js");
 const { ObservableObject, ObservableCollection, EventSignal, CancelEventArgs, properties, getSchema, GridLength, finite, positive, boolean, uid }=__require("events.js");
 __exports.ObservableCollection=__require("events.js").ObservableCollection;
 __exports.GridLength=__require("events.js").GridLength;
@@ -208,7 +231,7 @@ class LayoutContent extends LayoutElement {
   get IsDocked() { return this.IsVisible && !this.IsFloating && !this.IsAutoHidden; }
   get IsAutoHidden() { return false; }
   Activate() { if (this.Manager) this.Manager.Activate(this); else this._setActive(true); return this; }
-  Float() { return this.Manager ? this.Manager.Float(this) : false; }
+  Float(bounds = {}) { return this.Manager ? this.Manager.Float(this, bounds) : false; }
   Dock() { return this.Manager ? this.Manager.Dock(this) : false; }
   DockAsDocument() { return this.Manager ? this.Manager.DockAsDocument(this) : false; }
   Close() {
@@ -220,6 +243,7 @@ class LayoutContent extends LayoutElement {
   }
 }
 properties(LayoutContent, {
+  FloatingWindowMode: { default: null, validate: x => x == null || isFloatingWindowMode(x) },
   Title: { default: '', coerce: x => String(x ?? '') },
   ContentId: { default: null, coerce: x => x == null ? null : String(x) },
   Content: { default: null, serialize: false },
@@ -320,6 +344,7 @@ class LayoutFloatingWindow extends LayoutGroup {
   set RootPanel(value) { if (this.RootPanel === value) return; if (value) { if (this.ChildrenCount) this.Children.Set(0, value); else this.Children.Add(value); } else this.Children.Clear(); }
 }
 properties(LayoutFloatingWindow, {
+  FloatingWindowMode: { default: 'InPage', validate: isFloatingWindowMode },
   FloatingLeft: { default: 60, coerce: finite }, FloatingTop: { default: 60, coerce: finite },
   FloatingWidth: { default: 480, coerce: positive }, FloatingHeight: { default: 320, coerce: positive },
   IsMaximized: { default: false, coerce: boolean }, ZIndex: { default: 1, coerce: finite }
@@ -1037,7 +1062,14 @@ class LayoutAnchorablePaneGroupControl extends LayoutControl {}
 class LayoutAnchorGroupControl extends LayoutControl {}
 class LayoutAnchorSideControl extends LayoutControl {get Element(){return this.Manager?._view?.sideElements[this.Model.Side]||null;}}
 class LayoutFloatingWindowControl extends LayoutControl {
-  Show(){this.Manager?._view?.requestRender();}
+  get Window(){return this.Manager?._view?.popups.get(this.Model.Id)?.window||null;}
+  get IsBrowserWindow(){return !!this.Window&&!this.Window.closed;}
+  get FloatingWindowMode(){return this.Model.FloatingWindowMode;}
+  Show(){if(this.Model.FloatingWindowMode==='BrowserWindow')return this.Manager.PopOut(this.Model);this.Manager?._view?.requestRender();return this.Element;}
+  Activate(){const items=[...this.Model.Descendents()].filter(x=>x instanceof LayoutContent);const selected=items.find(x=>x.IsSelected)||items[0];if(selected)this.Manager.Activate(selected);this.Focus();return !!selected;}
+  Focus(){if(this.Window)this.Window.focus();else super.Focus();}
+  FloatInPage(){return this.Manager.FloatInPage(this.Model);}
+  FloatInBrowserWindow(){return this.Manager.FloatInBrowserWindow(this.Model);}
   Close(){return this.Manager.CloseFloatingWindow(this.Model);}
   Dock(){return this.Manager.Dock(this.Model);}
   Maximize(){this.Manager.Transaction('Maximize window',()=>{this.Model.IsMaximized=true;});}
@@ -1115,6 +1147,8 @@ class LayoutItem extends ObservableObject {
     const command = (name, execute, canExecute) => { this[name] = new RelayCommand(execute, canExecute); };
     command('ActivateCommand', () => manager.Activate(model), () => model.IsEnabled && model.Root === manager.Layout);
     command('CloseCommand', () => model.Close(), () => model.CanClose && model.Root === manager.Layout);
+    command('FloatInPageCommand', () => manager.FloatInPage(model), () => model.CanFloat && model.CanMove && model.IsEnabled && model.Root === manager.Layout);
+    command('FloatInBrowserWindowCommand', () => manager.FloatInBrowserWindow(model), () => manager.AllowBrowserWindows && model.CanFloat && model.CanMove && model.IsEnabled && model.Root === manager.Layout);
     command('FloatCommand', () => model.Float(), () => model.CanFloat && model.CanMove && !model.IsFloating);
     command('DockAsDocumentCommand', () => model.DockAsDocument(), () => model.CanDock && model.CanMove && !(model.Parent instanceof LayoutDocumentPane) && (!(model instanceof LayoutAnchorable) || model.CanDockAsTabbedDocument));
     command('CloseAllButThisCommand', () => manager.CloseAll(model, model.Parent instanceof LayoutDocumentPane ? model.Parent : null), () => model.Parent instanceof LayoutDocumentPane && model.Parent.ChildrenCount > 1);
@@ -1168,8 +1202,9 @@ const { LayoutRoot, LayoutPanel, LayoutContent, LayoutDocument, LayoutAnchorable
 const { snapshot, hydrate, JsonLayoutSerializer, XmlLayoutSerializer }=__require("serialization.js");
 const { LayoutDocumentItem, LayoutAnchorableItem }=__require("items.js");
 const { DockRenderer }=__require("view.js");
+const { isFloatingWindowMode, BrowserWindowFallback, BrowserWindowCloseBehavior, LayoutFloatingWindowControlCollectionChangedEventArgs }=__require("floating-window.js");
 
-const EVENTS = ['ActiveContentChanged','DocumentClosing','DocumentClosed','AnchorableClosing','AnchorableClosed','AnchorableHiding','AnchorableHidden','LayoutChanging','LayoutChanged','LayoutUpdated','LayoutFloatingWindowControlCreated','LayoutFloatingWindowControlClosed','HistoryChanged','Error','ContentMoved','ThemeChanged'];
+const EVENTS = ['ActiveContentChanged','DocumentClosing','DocumentClosed','AnchorableClosing','AnchorableClosed','AnchorableHiding','AnchorableHidden','LayoutChanging','LayoutChanged','LayoutUpdated','LayoutFloatingWindowControlCreated','LayoutFloatingWindowControlClosed','HistoryChanged','Error','ContentMoved','ThemeChanged','BrowserWindowOpened','BrowserWindowClosed','BrowserWindowBlocked','BrowserWindowBoundsChanged','ContentHostChanged','LayoutFloatingWindowControlCollectionChanged'];
 function identitySnapshot(value) {
   return JSON.stringify(value, (key, val) => ['LastActivationTimeStamp','activeContentId','lastFocusedDocumentId','IsSelected'].includes(key) ? undefined : val);
 }
@@ -1180,7 +1215,7 @@ class DockingManager extends ObservableObject {
     if (!hostOrOptions?.nodeType) options = hostOrOptions || {};
     for (const name of EVENTS) this[name] = new EventSignal();
     this.Id = uid('manager'); this.Host = null; this._view = null;
-    this._registry = new Map(); this._items = new Map(); this._sources = new Map();
+    this._floatingState = new Map(); this._registry = new Map(); this._items = new Map(); this._sources = new Map();
     this._undo = []; this._redo = []; this._depth = 0; this._suspended = 1; this._pendingBefore = null;
     this._queued = false; this._disposed = false; this._mru = []; this._autoHideModel = null;
     this._layout = new LayoutRoot({ RootPanel: new LayoutPanel({ Children: [new LayoutDocumentPane()] }) });
@@ -1196,6 +1231,7 @@ class DockingManager extends ObservableObject {
     if (options.AnchorablesSource) this.AnchorablesSource = options.AnchorablesSource;
     this._normalize(); this._registerContents(); this._suspended = 0;
     this._lastSnapshot = snapshot(this.Layout);
+    this._floatingState = new Map(this.Layout.FloatingWindows.map(x => [x.Id, { model: x, control: null }]));
     if (host) this.Attach(host);
     if (this.StorageKey && this.RestoreOnLoad) this.LoadFromStorage();
   }
@@ -1222,6 +1258,8 @@ class DockingManager extends ObservableObject {
   set ActiveContent(value) { this.Activate(value); }
   get ActiveModel() { return this.Layout.ActiveContent; }
   get FloatingWindows() { return this.Layout.FloatingWindows.ToArray().map(x => this._view?.controlFor(x) || x); }
+  get BrowserWindows() { return this.FloatingWindows.filter(x => x.IsBrowserWindow); }
+  get PendingBrowserWindows() { return this.Layout.FloatingWindows.filter(x => x.FloatingWindowMode === 'BrowserWindow' && !this._view?.popups.has(x.Id)); }
   get AutoHideWindow() { return this._autoHideModel ? { Model: this._autoHideModel, Element: this._view?.peek || null, Hide: () => this.HideAutoHideWindow() } : null; }
   get LayoutRootPanel() { return this._view?.elementFor(this.Layout.RootPanel) || null; }
   get LeftSidePanel() { return this._view?.sideElements.Left || null; }
@@ -1293,6 +1331,9 @@ class DockingManager extends ObservableObject {
     this._suspended++;
     try {
       this._registerContents();
+      for (const floating of this.Layout.FloatingWindows) {
+        if (floating instanceof LayoutDocumentFloatingWindow && floating.RootPanel instanceof LayoutDocument) floating.RootPanel = new LayoutDocumentPane({ Children: [floating.RootPanel] });
+      }
       this.Layout.CollectGarbage();
       if (![...this.Layout.RootPanel.Descendents()].some(x => x instanceof LayoutDocumentPane)) this.Layout.RootPanel.Children.Add(new LayoutDocumentPane());
       const all = contents(this.Layout);
@@ -1316,11 +1357,26 @@ class DockingManager extends ObservableObject {
       this._redo.length = 0; this._emit('HistoryChanged', { CanUndo: this.CanUndo, CanRedo: this.CanRedo, Label: label });
     }
     this._pendingBefore = null; this._lastSnapshot = after;
+    this._syncFloatingControls();
     for (const item of this._items.values()) item.RaiseCanExecuteChanged();
     this.Layout.Updated.emit(this.Layout, {});
     this._emit('LayoutUpdated', { Layout: this.Layout, Label: label });
     this._view?.requestRender();
     if (this.StorageKey && this.AutoSave) this.SaveToStorage();
+  }
+  _syncFloatingControls() {
+    const previous = this._floatingState;
+    const next = new Map(this.Layout.FloatingWindows.map(model => [model.Id, { model, control: this.CreateUIElementForModel(model) }]));
+    this._floatingState = next;
+    const notify = (action, entry) => {
+      const value = entry.control || entry.model;
+      this._emit(action === 'Add' ? 'LayoutFloatingWindowControlCreated' : 'LayoutFloatingWindowControlClosed', { Model: entry.model, Control: entry.control });
+      this._emit('LayoutFloatingWindowControlCollectionChanged', new LayoutFloatingWindowControlCollectionChangedEventArgs({
+        Action: action, NewItems: action === 'Add' ? [value] : [], OldItems: action === 'Remove' ? [value] : []
+      }));
+    };
+    for (const [id, entry] of previous) if (next.get(id)?.model !== entry.model) notify('Remove', entry);
+    for (const [id, entry] of next) if (previous.get(id)?.model !== entry.model) notify('Add', entry);
   }
   Transaction(label, action) {
     if (typeof label === 'function') { action = label; label = 'Edit layout'; }
@@ -1458,41 +1514,96 @@ class DockingManager extends ObservableObject {
     }
   }
   Float(subject, bounds = {}) {
+    if (this._disposed) throw new Error('DockingManager has been disposed');
     const list = this._subjectItems(subject);
     if (!list.length || !list.every(x => x.Root === this.Layout && x.CanFloat && x.CanMove && x.IsEnabled)) return false;
-    if (subject instanceof LayoutDocumentPane || subject instanceof LayoutDocumentPaneGroup) return false;
-    return this.Transaction('Float window', () => {
-      if (subject instanceof LayoutFloatingWindow) {
-        for (const name of ['FloatingLeft','FloatingTop','FloatingWidth','FloatingHeight']) if (bounds[name] != null) subject[name] = bounds[name];
-        return subject;
+    // Reuse a single-content floating model; floating a tab out of a group still
+    // creates its own window. Explicit window/group subjects keep all descendants.
+    const ancestor = subject instanceof LayoutContent ? subject.FindParent(LayoutFloatingWindow) : null;
+    if (ancestor && contents(ancestor).length === 1) subject = ancestor;
+    let mode = bounds.FloatingWindowMode ?? (subject instanceof LayoutFloatingWindow ? subject.FloatingWindowMode : list[0].FloatingWindowMode ?? this.FloatingWindowMode);
+    if (!isFloatingWindowMode(mode)) throw new TypeError('Invalid FloatingWindowMode');
+    for (const key of ['FloatingLeft','FloatingTop','FloatingWidth','FloatingHeight']) {
+      if (bounds[key] != null && (!Number.isFinite(Number(bounds[key])) || (key.includes('Width') || key.includes('Height')) && Number(bounds[key]) < 0)) throw new TypeError(`Invalid ${key}`);
+    }
+    const fallback = bounds.BrowserWindowFallback ?? this.BrowserWindowFallback;
+    if (!Object.hasOwn(BrowserWindowFallback, fallback)) throw new TypeError('Invalid BrowserWindowFallback');
+    const host = this._view?.browserWindows;
+    let reservation = null;
+    if (mode === 'BrowserWindow' && host) {
+      reservation = host.reserve(subject, { ...bounds, BrowserWindowFallback: fallback });
+      if (!reservation) {
+        if (fallback === 'Cancel') return false;
+        mode = 'InPage';
       }
-      for (const item of list) this._remember(item);
-      const seed = list[0];
-      const metrics = Object.fromEntries(['FloatingLeft','FloatingTop','FloatingWidth','FloatingHeight'].map(key => [key, bounds[key] ?? seed[key]]));
-      metrics.FloatingWidth = Math.max(this.FloatingWindowMinWidth, metrics.FloatingWidth || 480);
-      metrics.FloatingHeight = Math.max(this.FloatingWindowMinHeight, metrics.FloatingHeight || 320);
-      let floating;
-      if (subject instanceof LayoutDocument) floating = new LayoutDocumentFloatingWindow({ ...metrics, RootDocument: subject });
-      else {
-        let panel;
-        if (subject instanceof LayoutAnchorablePaneGroup) panel = this._copyFloatingGroup(subject);
-        else if (subject instanceof LayoutAnchorablePane) panel = new LayoutAnchorablePaneGroup({ Children: [this._copyFloatingGroup(subject)] });
-        else panel = new LayoutAnchorablePaneGroup({ Children: [new LayoutAnchorablePane({ Children: list })] });
-        floating = new LayoutAnchorableFloatingWindow({ ...metrics, RootPanel: panel });
+    } else if (mode === 'BrowserWindow' && !this.AllowBrowserWindows) {
+      if (fallback === 'Cancel') return false;
+      mode = 'InPage';
+    }
+    try {
+      return this.Transaction('Float window', () => {
+        let floating;
+        if (subject instanceof LayoutFloatingWindow) {
+          floating = subject;
+          if (mode === 'InPage' && floating.FloatingWindowMode === 'BrowserWindow') {
+            floating.FloatingLeft = 40; floating.FloatingTop = 40; floating.IsMaximized = false;
+          }
+          for (const key of ['FloatingLeft','FloatingTop','FloatingWidth','FloatingHeight']) if (bounds[key] != null) floating[key] = bounds[key];
+        } else {
+          for (const item of list) this._remember(item);
+          const seed = list[0];
+          const metrics = Object.fromEntries(['FloatingLeft','FloatingTop','FloatingWidth','FloatingHeight'].map(key => [key, bounds[key] ?? seed[key]]));
+          metrics.FloatingWidth = Math.max(this.FloatingWindowMinWidth, metrics.FloatingWidth || 480);
+          metrics.FloatingHeight = Math.max(this.FloatingWindowMinHeight, metrics.FloatingHeight || 320);
+          if (subject instanceof LayoutDocument || subject instanceof LayoutDocumentPane || subject instanceof LayoutDocumentPaneGroup) {
+            const panel = subject instanceof LayoutDocument ? new LayoutDocumentPane({ Children: [subject] }) : this._copyFloatingGroup(subject);
+            floating = new LayoutDocumentFloatingWindow({ ...metrics, RootPanel: panel });
+          } else {
+            let panel;
+            if (subject instanceof LayoutAnchorablePaneGroup) panel = this._copyFloatingGroup(subject);
+            else if (subject instanceof LayoutAnchorablePane) panel = new LayoutAnchorablePaneGroup({ Children: [this._copyFloatingGroup(subject)] });
+            else panel = new LayoutAnchorablePaneGroup({ Children: [new LayoutAnchorablePane({ Children: list })] });
+            floating = new LayoutAnchorableFloatingWindow({ ...metrics, RootPanel: panel });
+          }
+          this.Layout.FloatingWindows.Add(floating);
+        }
+        floating.FloatingWindowMode = mode;
+        if (reservation && !host.attach(floating, reservation)) {
+          if (fallback === 'Cancel') throw new Error('Unable to initialize browser-window host');
+          floating.FloatingWindowMode = 'InPage';
+        } else if (mode === 'InPage') host?.close(floating.Id);
+        this._autoHideModel = null; this.Activate(list[0]);
+        this._emit('ContentMoved', { Contents: list, Operation: 'Float', Model: floating });
+        return floating;
+      });
+    } catch (error) {
+      if (reservation?.reserved) {
+        const rec = [...(this._view?.popups.values() || [])].find(x => x.window === reservation.window);
+        if (rec) host.close(rec.modelId, { reason: 'Rollback' });
+        else try { reservation.window.close(); } catch {}
       }
-      this.Layout.FloatingWindows.Add(floating);
-      this._autoHideModel = null; this.Activate(seed);
-      this._emit('LayoutFloatingWindowControlCreated', { Model: floating });
-      this._emit('ContentMoved', { Contents: list, Operation: 'Float' });
-      return floating;
-    });
+      throw error;
+    }
+  }
+  FloatInPage(subject, bounds = {}) { return this.Float(subject, { ...bounds, FloatingWindowMode: 'InPage' }); }
+  FloatInBrowserWindow(subject, bounds = {}) { return this.Float(subject, { ...bounds, FloatingWindowMode: 'BrowserWindow' }); }
+  // Restored native windows are shown in-page until explicitly resumed in a
+  // user gesture. Do not repeatedly request blocked popups from render().
+  RestoreBrowserWindows() {
+    const opened = [];
+    for (const model of [...this.PendingBrowserWindows]) {
+      const result = this.FloatInBrowserWindow(model, { BrowserWindowFallback: 'Cancel' });
+      const window = result && this._view?.popups.get(result.Id)?.window;
+      if (window) opened.push(window);
+    }
+    return opened;
   }
   _copyFloatingGroup(source) {
     // Keep the original panes as hidden return anchors. Content nodes are moved,
     // never cloned, so each item still has an unambiguous dock-back location.
     const options = {};
     for (const key of Object.keys(getSchema(source.constructor))) if (key !== 'Id' && !key.startsWith('Actual')) options[key] = source[key];
-    options.Children = source instanceof LayoutAnchorablePane ? [...source.Children] : [...source.Children].map(child => this._copyFloatingGroup(child));
+    options.Children = source instanceof LayoutPane ? [...source.Children] : [...source.Children].map(child => this._copyFloatingGroup(child));
     return new source.constructor(options);
   }
   CanDockAt(subject, target, position = 'Center') {
@@ -1678,6 +1789,7 @@ class DockingManager extends ObservableObject {
     this.Transaction('Close documents', () => { for (const item of list) if (item !== except && this.Close(item)) closed++; }); return closed;
   }
   CloseFloatingWindow(floating) {
+    if (!(floating instanceof LayoutFloatingWindow) || floating.Root !== this.Layout) return false;
     const list = contents(floating), actions = [];
     for (const item of list) {
       if (item instanceof LayoutAnchorable && item.CanHide) {
@@ -1687,10 +1799,15 @@ class DockingManager extends ObservableObject {
     }
     return this.Transaction('Close floating window', () => {
       for (const [item, action] of actions) { if (action === 'hide') this.Hide(item, false); else this._removeClosed(item); }
-      this.Layout.FloatingWindows.Remove(floating); this._emit('LayoutFloatingWindowControlClosed', { Model: floating }); return true;
+      this.Layout.FloatingWindows.Remove(floating); return true;
     });
   }
-  PopOut(item) { return this._view?.popOut(item) || null; }
+  PopOut(item) {
+    if (!this._view) return null;
+    const subject = item instanceof LayoutFloatingWindow ? item : item?.FindParent?.(LayoutFloatingWindow) || item;
+    const model = this.FloatInBrowserWindow(subject, { BrowserWindowFallback: 'Cancel' });
+    return model ? this._view.popups.get(model.Id)?.window || null : null;
+  }
   FocusNextPane(reverse = false) {
     const panes = [...this.Layout.Descendents()].filter(x => x instanceof LayoutPane && x.ChildrenCount && x.IsVisible);
     if (!panes.length) return;
@@ -1799,6 +1916,11 @@ class DockingManager extends ObservableObject {
   }
 }
 properties(DockingManager, {
+  FloatingWindowMode: { default: 'InPage', validate: isFloatingWindowMode },
+  AllowBrowserWindows: { default: true, coerce: boolean },
+  EnableCrossWindowDocking: { default: true, coerce: boolean },
+  BrowserWindowFallback: { default: 'InPage', validate: x => Object.hasOwn(BrowserWindowFallback, x) },
+  BrowserWindowCloseBehavior: { default: 'Dock', validate: x => Object.hasOwn(BrowserWindowCloseBehavior, x) },
   AllowMixedOrientation: { default: false, coerce: boolean }, Theme: { default: 'dark' },
   GridSplitterWidth: { default: 5, coerce: positive }, GridSplitterHeight: { default: 5, coerce: positive },
   FloatingWindowMinWidth: { default: 220, coerce: positive }, FloatingWindowMinHeight: { default: 140, coerce: positive },
@@ -1831,13 +1953,14 @@ const { GridLength }=__require("events.js");
 const { LayoutRoot, LayoutPanel, LayoutContent, LayoutDocument, LayoutAnchorable, LayoutPane, LayoutDocumentPane, LayoutAnchorablePane, LayoutDocumentPaneGroup, LayoutAnchorablePaneGroup, LayoutAnchorSide, LayoutAnchorGroup, LayoutFloatingWindow, LayoutDocumentFloatingWindow, contents }=__require("model.js");
 const { element, icon, button, syncChildren, moveNode, clamp, rectRelative, applyStyle, selectTemplate }=__require("dom.js");
 const { controlFor }=__require("controls.js");
+const { BrowserWindowHost }=__require("browser-windows.js");
 
 const SIDES = ['Left','Top','Right','Bottom'];
 class DockRenderer {
   constructor(manager, host) {
     this.manager = manager; this.host = host; this.doc = host.ownerDocument; this.win = this.doc.defaultView;
     this.abort = new this.win.AbortController(); this.records = new Map(); this.contentRecords = new Map(); this.tabs = new Map(); this.splitters = new Map();
-    this.popups = new Map(); this.sideElements = {}; this.frame = 0; this.rendering = false; this.disposed = false;
+    this.controls = new Map(); this.popups = new Map(); this.sideElements = {}; this.frame = 0; this.rendering = false; this.disposed = false;
     this._originalNodes = [...host.childNodes]; this._oldClass = host.className; this._oldTabIndex = host.getAttribute('tabindex'); this._oldRole = host.getAttribute('role');
     host.classList.add('ad-manager'); host.tabIndex = 0; host.setAttribute('role', 'region'); host.setAttribute('aria-label', 'Docking workspace');
     this.stage = element(this.doc, 'div', 'ad-stage');
@@ -1852,6 +1975,8 @@ class DockRenderer {
     this.parking = element(this.doc, 'div', 'ad-parking'); this.parking.hidden = true;
     this.live = element(this.doc, 'div', 'ad-live'); this.live.setAttribute('aria-live', 'polite'); this.live.setAttribute('aria-atomic','true');
     host.replaceChildren(this.stage, this.floatingLayer, this.overlay, this.parking, this.live);
+    this.rootSurface = Object.fromEntries(['doc','win','host','workspace','overlay','parking','live'].map(key => [key, this[key]]));
+    this.browserWindows = new BrowserWindowHost(this);
     const opts = { signal: this.abort.signal };
     host.addEventListener('keydown', event => this.onKeyDown(event), opts);
     host.addEventListener('keyup', event => this.onKeyUp(event), opts);
@@ -1866,14 +1991,35 @@ class DockRenderer {
     this.win.addEventListener('blur', () => this.cancelInteraction(), opts);
     this.resizeObserver = new this.win.ResizeObserver(() => { if (!this.interaction) this.requestRender(); }); this.resizeObserver.observe(host);
   }
+  surfaceFor(doc) { return [...this.popups.values()].find(rec => rec.doc === doc)?.surface || this.rootSurface; }
+  withSurface(surface, action) {
+    const keys = ['doc','win','host','workspace','overlay','parking','live'];
+    const old = Object.fromEntries(keys.map(key => [key, this[key]])), previous = this.currentSurface;
+    Object.assign(this, Object.fromEntries(keys.map(key => [key, surface[key]]))); this.currentSurface = surface;
+    try { return action(); } finally { Object.assign(this, old); this.currentSurface = previous; }
+  }
   requestRender() {
     if (this.disposed || this.frame) return;
-    this.frame = this.win.requestAnimationFrame(() => { this.frame = 0; this.render(); });
+    // The owner can be minimized/backgrounded while a child remains visible.
+    // A hidden owner's requestAnimationFrame must not stall every child view.
+    const surface = [this.rootSurface, ...[...this.popups.values()].map(r => r.surface)]
+      .find(s => !s.win.closed && s.doc.visibilityState === 'visible') || this.rootSurface;
+    this.frameWindow = surface.win;
+    this.frameIsTimer = surface.doc.visibilityState !== 'visible';
+    const run = () => { this.frame = 0; this.render(); };
+    this.frame = this.frameIsTimer ? surface.win.setTimeout(run, 16) : surface.win.requestAnimationFrame(run);
+  }
+  cancelRenderFrame() {
+    if (!this.frame) return;
+    if (this.frameIsTimer) this.frameWindow.clearTimeout(this.frame);
+    else this.frameWindow.cancelAnimationFrame(this.frame);
+    this.frame = 0;
   }
   invalidateTemplates() { for (const rec of this.contentRecords.values()) rec.template = Symbol('invalid'); this.requestRender(); }
   render() {
     if (this.disposed || this.rendering) return;
     this.rendering = true;
+    this.browserWindows.reconcile();
     const active = this.doc.activeElement;
     const selection = active && 'selectionStart' in active ? { start: active.selectionStart, end: active.selectionEnd, direction: active.selectionDirection } : null;
     const start = this.win.performance.now();
@@ -1892,7 +2038,7 @@ class DockRenderer {
       const floating = [];
       for (const model of this.manager.Layout.FloatingWindows) {
         const popup = this.popups.get(model.Id);
-        if (popup && !popup.window.closed) { this.renderPopup(model, popup); continue; }
+        if (popup && this.browserWindows.render(model, popup)) continue;
         floating.push(this.renderFloating(model));
       }
       this.sync(this.floatingLayer, floating);
@@ -1901,7 +2047,7 @@ class DockRenderer {
         if (!this.visibleContents.has(id)) {
           rec.el.hidden = true;
           // Keep hidden content alive and connected; factories are disposed only on explicit release.
-          if (!rec.el.isConnected || !this.host.contains(rec.el)) moveNode(this.parking, rec.el);
+          if (!rec.el.isConnected) moveNode(this.parking, rec.el);
         }
       }
       for (const [id, record] of this.records) if (!this.usedRecords.has(id)) {
@@ -1914,6 +2060,14 @@ class DockRenderer {
       for (const rec of this.records.values()) {
         if ('ActualWidth' in rec.model) { const rect = rec.el.getBoundingClientRect(); rec.model._values.ActualWidth = rect.width; rec.model._values.ActualHeight = rect.height; }
       }
+      for (const [id, rec] of this.contentRecords) {
+        const doc = rec.el.ownerDocument;
+        if (rec.hostDocument && rec.hostDocument !== doc) this.manager._emit('ContentHostChanged', {
+          Model: this.manager.Find(id), Element: rec.el, OldDocument: rec.hostDocument, Document: doc, Window: doc.defaultView
+        });
+        rec.hostDocument = doc;
+      }
+      for (const id of this.controls.keys()) if (!this.manager.FindById(id)) this.controls.delete(id);
       if (active?.isConnected && this.doc.activeElement !== active && this.host.contains(active)) {
         try { active.focus({ preventScroll: true }); if (selection && selection.start != null) active.setSelectionRange(selection.start, selection.end, selection.direction); } catch { /* Not all editable elements expose text selection. */ }
       }
@@ -1988,6 +2142,7 @@ class DockRenderer {
       if (typeof template === 'function') template(model, el, this.manager);
       return { el, title, caption, actions, menu, pin, close, tabRow, tabs, overflow, body, empty };
     });
+    rec.title.dataset.adDrag = model.Id; rec.title.draggable = true;
     const selected = model.SelectedContent;
     rec.el.classList.toggle('ad-active-pane', model.IsActive);
     rec.el.setAttribute('aria-label', selected?.Title || (isDoc ? 'Document pane' : 'Tool pane'));
@@ -2030,13 +2185,13 @@ class DockRenderer {
         if (['ArrowLeft','ArrowRight','Home','End'].includes(event.key) && !event.altKey) {
           event.preventDefault(); const items = [...rec.pane.Children].filter(x => x.IsEnabled); let i = items.indexOf(rec.model);
           i = event.key === 'Home' ? 0 : event.key === 'End' ? items.length-1 : (i + (event.key === 'ArrowRight' ? 1 : -1) + items.length) % items.length;
-          if (items[i]) { this.manager.Activate(items[i]); this.requestRender(); this.win.requestAnimationFrame(() => this.tabs.get(`${rec.pane.Id}:${items[i].ContentId}`)?.el.focus()); }
+          if (items[i]) { this.manager.Activate(items[i]); this.requestRender(); event.currentTarget.ownerDocument.defaultView.requestAnimationFrame(() => this.tabs.get(`${rec.pane.Id}:${items[i].ContentId}`)?.el.focus()); }
         } else if (event.key === 'Delete' && event.shiftKey) { event.preventDefault(); rec.model.Close(); }
         else if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); this.manager.Activate(rec.model); }
       });
       this.tabs.set(key,rec);
     }
-    rec.model = model; rec.pane = pane;
+    rec.model = model; rec.pane = pane; rec.el.dataset.adDrag = model.Id; rec.el.draggable = true;
     rec.el.id = `${this.manager.Id}-tab-${encodeURIComponent(model.Id)}`; rec.el.tabIndex = model.IsSelected ? 0 : -1;
     rec.el.setAttribute('aria-selected', String(model.IsSelected)); rec.el.setAttribute('aria-disabled', String(!model.IsEnabled));
     rec.el.setAttribute('aria-controls',`${this.manager.Id}-content-${encodeURIComponent(model.ContentId)}`);
@@ -2182,7 +2337,8 @@ class DockRenderer {
       const dock=button(this.doc,'dock','Dock window',()=>this.manager.Dock(rec.model));
       const maximize=button(this.doc,'maximize','Maximize window',()=>this.manager.Transaction('Maximize window',()=>{rec.model.IsMaximized=!rec.model.IsMaximized;}));
       const close=button(this.doc,'close','Close floating window',()=>this.manager.CloseFloatingWindow(rec.model),'ad-close-window');
-      title.append(caption,dock,maximize,close);
+      const browser=button(this.doc,'float','Open in browser window',()=>this.manager.PopOut(rec.model));
+      title.append(caption,dock,browser,maximize,close);
       title.addEventListener('pointerdown',event=>{if(!event.target.closest('button'))this.beginDrag(event,rec.model);});
       title.addEventListener('dblclick',event=>{if(!event.target.closest('button'))this.manager.Transaction('Maximize window',()=>{rec.model.IsMaximized=!rec.model.IsMaximized;});});
       title.addEventListener('contextmenu',event=>{if(this.manager.ShowSystemMenu){event.preventDefault();this.openContextMenu(contents(rec.model)[0],event.clientX,event.clientY);}});
@@ -2200,8 +2356,11 @@ class DockRenderer {
         });el.append(grip);
       }
       el.addEventListener('pointerdown',()=>{const item=contents(rec.model).find(x=>x.IsSelected)||contents(rec.model)[0];if(item)this.manager.Activate(item);});
-      return {el,title,caption,dock,maximize,close,body};
+      return {el,title,caption,dock,browser,maximize,close,body};
     });
+    rec.title.dataset.adDrag=model.Id;rec.title.draggable=true;
+    rec.browser.hidden=!this.manager.AllowBrowserWindows;
+    rec.el.classList.toggle('ad-browser-pending',model.FloatingWindowMode==='BrowserWindow');
     const all=contents(model),selected=all.find(x=>x.IsActive)||all.find(x=>x.IsSelected)||all[0];
     this.renderLabel(rec.caption,selected,selected instanceof LayoutAnchorable?'AnchorableTitleTemplate':'DocumentTitleTemplate');
     rec.el.setAttribute('aria-label',selected?.Title||'Floating window');rec.el.dataset.floatingId=model.Id;
@@ -2244,13 +2403,17 @@ class DockRenderer {
     rec.el.setAttribute('aria-valuenow',String(Math.round(100*av/(av+bv||1))));
     return rec.el;
   }
-  elementFor(model) { return this.records.get(model.Id)?.el || (model instanceof LayoutContent ? this.contentRecords.get(model.ContentId)?.el : null); }
-  contentElement(model) { return this.contentRecords.get(model.ContentId)?.el || null; }
-  controlFor(model) { return controlFor(model,this.manager); }
+  elementFor(model) { return this.popups.get(model?.Id)?.shell || this.records.get(model?.Id)?.el || (model instanceof LayoutContent ? this.contentRecords.get(model.ContentId)?.el : null); }
+  contentElement(model) { return this.contentRecords.get(model?.ContentId)?.el || null; }
+  controlFor(model) {
+    let control = this.controls.get(model?.Id);
+    if (!control || control.Model !== model) { control = controlFor(model, this.manager); if (model) this.controls.set(model.Id, control); }
+    return control;
+  }
   focusContent(model) {
-    if(!model)return;this.requestRender();this.win.requestAnimationFrame(()=>{
+    if(!model)return;this.requestRender();(this.contentElement(model)?.ownerDocument.defaultView || this.win).requestAnimationFrame(()=>{
       const content=this.contentElement(model);const target=content?.querySelector('textarea,input,button,[contenteditable="true"],[tabindex="0"]')||content;
-      target?.focus({preventScroll:true});
+      target?.ownerDocument.defaultView?.focus(); target?.focus({preventScroll:true});
     });
   }
   announce(text){this.live.textContent=text;}
@@ -2265,7 +2428,8 @@ class DockRenderer {
       cmd('New vertical tab group',wrapper.NewVerticalTabGroupCommand),cmd('New horizontal tab group',wrapper.NewHorizontalTabGroupCommand),
       cmd('Move to next tab group',wrapper.MoveToNextTabGroupCommand),cmd('Move to previous tab group',wrapper.MoveToPreviousTabGroupCommand),
       ...(model instanceof LayoutAnchorable?[null,...SIDES.map(side=>({Label:`Dock to ${side.toLowerCase()} edge`,Execute:()=>this.manager.Dock(model,this.manager.Layout,side),CanExecute:()=>this.manager.CanDockAt(model,this.manager.Layout,side)}))]:[]),
-      null,{Label:'Open in browser window',Execute:()=>this.popOut(model),CanExecute:()=>model.CanFloat&&model.CanMove},
+      null,{Label:'Open in browser window',Execute:()=>this.manager.PopOut(model),CanExecute:()=>this.manager.AllowBrowserWindows&&model.CanFloat&&model.CanMove&&model.IsEnabled},
+      {Label:'Float in page',Execute:()=>this.manager.FloatInPage(model),CanExecute:()=>model.CanFloat&&model.CanMove&&model.IsEnabled},
       null,cmd('Close',wrapper.CloseCommand,'Ctrl+F4'),cmd('Close other tabs',wrapper.CloseAllButThisCommand),cmd('Close all tabs',wrapper.CloseAllCommand)
     ];
     const provider=model instanceof LayoutAnchorable?this.manager.AnchorableContextMenu:this.manager.DocumentContextMenu;
@@ -2309,6 +2473,7 @@ class DockRenderer {
     if(!items.length||!items.every(x=>x.CanMove&&x.IsEnabled))return;
     if(subject instanceof LayoutContent&&subject.Parent instanceof LayoutPane&&!subject.Parent.CanRepositionItems)return;
     if(subject instanceof LayoutFloatingWindow&&subject.IsMaximized)return;
+    if(this.browserWindows.useNativeDrag(event))return;
     const start={x:event.clientX,y:event.clientY};let active=false,drop=null;
     const floating=subject instanceof LayoutFloatingWindow?subject:null;
     const floatingElement=floating?this.elementFor(floating):null;
@@ -2351,7 +2516,7 @@ class DockRenderer {
     if(x<hostRect.left||x>hostRect.right||y<hostRect.top||y>hostRect.bottom)return null;
     const edge=32;let side=null;
     if(x-hostRect.left<edge)side='Left';else if(hostRect.right-x<edge)side='Right';else if(y-hostRect.top<edge)side='Top';else if(hostRect.bottom-y<edge)side='Bottom';
-    if(side&&this.manager.CanDockAt(payload.subject,this.manager.Layout,side))return{target:this.manager.Layout,position:side,rect:rectRelative(this.workspace.getBoundingClientRect(),hostRect),outer:true};
+    if(side&&!this.currentSurface?.floating&&this.manager.CanDockAt(payload.subject,this.manager.Layout,side))return{target:this.manager.Layout,position:side,rect:rectRelative(this.workspace.getBoundingClientRect(),hostRect),outer:true};
     const root=this.host.getRootNode();
     const hits=root.elementsFromPoint?root.elementsFromPoint(x,y):this.doc.elementsFromPoint(x,y);
     let pane=null,paneElement=null;
@@ -2405,7 +2570,7 @@ class DockRenderer {
       }
     }
     for(const side of SIDES){
-      if(!this.manager.CanDockAt(payload.subject,this.manager.Layout,side))continue;
+      if(this.currentSurface?.floating||!this.manager.CanDockAt(payload.subject,this.manager.Layout,side))continue;
       const guide=element(this.doc,'div',`ad-drop-guide ad-root-guide ${drop?.outer&&drop.position===side?'ad-drop-guide-active':''}`);guide.dataset.rootDock=side;guide.append(icon(this.doc,side.toLowerCase(),20));
       const left=side==='Left'?7:side==='Right'?origin.width-43:origin.width/2-18;
       const top=side==='Top'?7:side==='Bottom'?origin.height-43:origin.height/2-18;
@@ -2417,23 +2582,26 @@ class DockRenderer {
     }
   }
   trackPointer(event,callbacks) {
+    const surface=this.currentSurface||this.rootSurface;
+    callbacks=Object.fromEntries(Object.entries(callbacks).map(([key,value])=>[key,typeof value==='function'?(...args)=>this.withSurface(surface,()=>value(...args)):value]));
+    const doc=surface.doc,win=surface.win;
     event.preventDefault();
     const capture=event.currentTarget||event.target;
     try{capture.setPointerCapture?.(event.pointerId);}catch{}
-    const controller=new this.win.AbortController(),opts={signal:controller.signal,capture:true};let latest=null,frame=0,finished=false;
-    const cleanup=()=>{if(frame)this.win.cancelAnimationFrame(frame);controller.abort();try{capture.releasePointerCapture?.(event.pointerId);}catch{}this.interaction=null;this.doc.documentElement.classList.remove('ad-is-interacting');};
+    const controller=new win.AbortController(),opts={signal:controller.signal,capture:true};let latest=null,frame=0,finished=false;
+    const cleanup=()=>{if(frame)win.cancelAnimationFrame(frame);controller.abort();try{capture.releasePointerCapture?.(event.pointerId);}catch{}this.interaction=null;doc.documentElement.classList.remove('ad-is-interacting');};
     const cancel=()=>{if(finished)return;finished=true;cleanup();callbacks.cancel?.();};
-    this.interaction={type:callbacks.type,cancel};this.doc.documentElement.classList.add('ad-is-interacting');
-    this.doc.addEventListener('pointermove',e=>{
+    this.interaction={type:callbacks.type,cancel};doc.documentElement.classList.add('ad-is-interacting');
+    doc.addEventListener('pointermove',e=>{
       if(e.pointerId!==event.pointerId)return;e.preventDefault();latest=e;
-      if(!frame)frame=this.win.requestAnimationFrame(()=>{frame=0;const point=latest;latest=null;if(point&&!finished)callbacks.move?.(point);});
+      if(!frame)frame=win.requestAnimationFrame(()=>{frame=0;const point=latest;latest=null;if(point&&!finished)callbacks.move?.(point);});
     },opts);
-    this.doc.addEventListener('pointerup',e=>{
+    doc.addEventListener('pointerup',e=>{
       if(e.pointerId!==event.pointerId||finished)return;
-      if(frame){this.win.cancelAnimationFrame(frame);frame=0;}callbacks.move?.(e);finished=true;cleanup();callbacks.end?.(e);
+      if(frame){win.cancelAnimationFrame(frame);frame=0;}callbacks.move?.(e);finished=true;cleanup();callbacks.end?.(e);
     },opts);
-    this.doc.addEventListener('pointercancel',e=>{if(e.pointerId===event.pointerId)cancel();},opts);
-    this.doc.addEventListener('keydown',e=>{if(e.key==='Escape'){e.preventDefault();cancel();}},opts);
+    doc.addEventListener('pointercancel',e=>{if(e.pointerId===event.pointerId)cancel();},opts);
+    doc.addEventListener('keydown',e=>{if(e.key==='Escape'){e.preventDefault();cancel();}},opts);
   }
   cancelInteraction(){this.interaction?.cancel();}
   minSize(model,axis) {
@@ -2539,46 +2707,35 @@ class DockRenderer {
   stepNavigator(delta){if(!this.navigator)return;this.navigatorIndex=(this.navigatorIndex+delta+this.navigatorItems.length)%this.navigatorItems.length;this.updateNavigator();}
   updateNavigator(){this.navigatorRows.forEach((row,index)=>{row.classList.toggle('ad-selected',index===this.navigatorIndex);row.setAttribute('aria-selected',String(index===this.navigatorIndex));});this.navigatorRows[this.navigatorIndex]?.scrollIntoView({block:'nearest'});}
   closeNavigator(commit){if(!this.navigator)return;const model=this.navigatorItems[this.navigatorIndex];this.navigator.remove();this.navigator=null;if(commit&&model){this.manager.Activate(model);this.focusContent(model);}else this.navigatorFocus?.focus({preventScroll:true});}
-  popOut(subject) {
-    const items=this.manager._subjectItems(subject);if(!items.length||!items.every(x=>x.CanFloat&&x.CanMove))return null;
-    let model=subject instanceof LayoutFloatingWindow?subject:subject.FindParent(LayoutFloatingWindow);
-    if(model&&this.popups.has(model.Id)){this.popups.get(model.Id).window.focus();return this.popups.get(model.Id).window;}
-    const popup=this.win.open('about:blank',`${this.manager.Id}-${subject.Id}`,`popup,width=${Math.round(model?.FloatingWidth||640)},height=${Math.round(model?.FloatingHeight||440)}`);
-    if(!popup){this.manager._emit('Error',{Error:new Error('The browser blocked this popup. Allow popups or use in-page floating windows.'),Operation:'Open browser window'});return null;}
-    if(!model)model=this.manager.Float(subject);if(!model){popup.close();return null;}
-    const doc=popup.document;doc.title=items[0].Title;
-    for(const source of this.doc.querySelectorAll('link[rel="stylesheet"],style')){
-      const clone=source.cloneNode(true);if(clone.tagName==='LINK')clone.href=source.href;doc.head.append(clone);
-    }
-    const style=doc.createElement('style');style.textContent='html,body{margin:0;width:100%;height:100%;overflow:hidden}.ad-popup-shell{display:flex;flex-direction:column;width:100%;height:100%}.ad-popup-toolbar{display:flex;align-items:center;padding:6px 10px;gap:10px;border-bottom:1px solid var(--ad-border);background:var(--ad-chrome);font:12px system-ui}.ad-popup-toolbar strong{flex:1}.ad-popup-body{flex:1;min-height:0;display:flex}.ad-popup-body>.ad-group,.ad-popup-body>.ad-content{flex:1}';doc.head.append(style);
-    const shell=element(doc,'div','ad-manager ad-popup-shell');shell.dataset.theme=this.host.dataset.theme;shell.tabIndex=0;
-    const bar=element(doc,'div','ad-popup-toolbar');bar.append(element(doc,'strong','',items[0].Title),button(doc,'dock','Dock back into workspace',()=>{const live=this.manager.FindById(model.Id);this.closePopup(model.Id);if(live)this.manager.Dock(live);}));
-    const body=element(doc,'div','ad-popup-body');shell.append(bar,body);doc.body.replaceChildren(shell);
-    const rec={window:popup,body,shell,modelId:model.Id,closing:false};this.popups.set(model.Id,rec);
-    popup.addEventListener('beforeunload',()=>this.closePopup(model.Id,false));
-    shell.addEventListener('keydown',event=>this.onKeyDown(event));shell.addEventListener('keyup',event=>this.onKeyUp(event));
-    shell.addEventListener('focusin',event=>{const id=event.target.closest?.('[data-ad-content]')?.dataset.adContent;if(id){const item=this.manager.Find(id);if(item)this.manager.Activate(item);}});
-    popup.addEventListener('resize',()=>{const live=this.manager.FindById(rec.modelId);if(!rec.closing&&live)this.manager.Transaction('Resize browser window',()=>{live.FloatingWidth=Math.max(220,popup.innerWidth);live.FloatingHeight=Math.max(140,popup.innerHeight);});});
-    this.requestRender();return popup;
-  }
-  renderPopup(model,popup){popup.shell.dataset.theme=this.host.dataset.theme;const root=model.RootPanel;if(root)this.sync(popup.body,[this.renderNode(root)]);}
-  closePopup(id,closeWindow=true){
-    const rec=this.popups.get(id);if(!rec||rec.closing)return;rec.closing=true;
-    for(const child of [...rec.body.children])moveNode(this.parking,child);
-    this.popups.delete(id);if(closeWindow&&!rec.window.closed)rec.window.close();this.requestRender();
-  }
+  popOut(subject) { return this.manager.PopOut(subject); }
+  renderPopup(model, popup) { return this.browserWindows.render(model, popup); }
+  closePopup(id, closeWindow = true) { this.browserWindows.close(id, { closeWindow }); }
   releaseContent(id){const rec=this.contentRecords.get(id);if(!rec)return;rec.dispose?.();rec.el.remove();this.contentRecords.delete(id);}
   dispose(){
     if(this.disposed)return;this.cancelInteraction();this.disposed=true;this.abort.abort();this.resizeObserver.disconnect();
-    if(this.frame)this.win.cancelAnimationFrame(this.frame);clearTimeout(this.hoverTimer);clearTimeout(this.peekCloseTimer);
-    for(const id of [...this.popups.keys()])this.closePopup(id);
+    this.cancelRenderFrame();clearTimeout(this.hoverTimer);clearTimeout(this.peekCloseTimer);
+    this.browserWindows.dispose();
     for(const rec of this.contentRecords.values())rec.dispose?.();
-    this.contentRecords.clear();this.records.clear();this.tabs.clear();this.splitters.clear();
+    this.contentRecords.clear();this.controls.clear();this.records.clear();this.tabs.clear();this.splitters.clear();
     this.host.replaceChildren(...this._originalNodes);this.host.className=this._oldClass;
     if(this._oldTabIndex==null)this.host.removeAttribute('tabindex');else this.host.setAttribute('tabindex',this._oldTabIndex);
     if(this._oldRole==null)this.host.removeAttribute('role');else this.host.setAttribute('role',this._oldRole);
     this.host.removeAttribute('aria-label');this.host.removeAttribute('data-theme');
   }
+}
+
+for (const name of ['beginDrag','beginSplitterResize','beginFloatingResize','beginPeekResize','onKeyDown','onKeyUp']) {
+  const method = DockRenderer.prototype[name];
+  DockRenderer.prototype[name] = function(event, ...args) {
+    return this.withSurface(this.surfaceFor(event.target?.ownerDocument), () => method.call(this, event, ...args));
+  };
+}
+for (const name of ['openContextMenu','openTabList']) {
+  const method = DockRenderer.prototype[name];
+  DockRenderer.prototype[name] = function(model, ...args) {
+    const doc = args[0]?.target?.ownerDocument || this.contentElement(model)?.ownerDocument || this.elementFor(model)?.ownerDocument;
+    return this.withSurface(this.surfaceFor(doc), () => method.call(this, model, ...args));
+  };
 }
 
 __exports.DockRenderer=DockRenderer;
@@ -2658,6 +2815,364 @@ __exports.rectRelative=rectRelative;
 __exports.applyStyle=applyStyle;
 __exports.selectTemplate=selectTemplate;
 },
+"browser-windows.js":function(__exports,__require){
+const { LayoutContent, LayoutDocument, LayoutPane, LayoutFloatingWindow, LayoutDocumentPane, contents }=__require("model.js");
+const { element, button, moveNode }=__require("dom.js");
+
+const GEOMETRY = ['FloatingLeft', 'FloatingTop', 'FloatingWidth', 'FloatingHeight'];
+const DRAG_TYPE = 'application/x-dockyard-window';
+const POPUP_CSS = `
+html,body{margin:0;width:100%;height:100%;overflow:hidden}
+.ad-popup-shell{position:relative;display:flex;flex-direction:column;width:100%;height:100%;min-width:0;min-height:0}
+.ad-popup-toolbar{display:flex;align-items:center;flex:0 0 34px;gap:6px;padding:0 8px;border-bottom:1px solid var(--ad-border);background:var(--ad-chrome);font:12px system-ui;user-select:none}
+.ad-popup-toolbar strong{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ad-popup-body{flex:1;min-height:0;min-width:0;display:flex;overflow:hidden}
+.ad-popup-body>.ad-group,.ad-popup-body>.ad-pane,.ad-popup-body>.ad-content{flex:1;min-width:0;min-height:0}
+.ad-popup-shell .ad-drag-overlay{inset:0}
+`;
+
+/** One owner, one logical layout tree, any number of real browser documents.
+ * No layout clones, remote scripts or cross-origin postMessage commands are used.
+ */
+class BrowserWindowHost {
+  constructor(renderer) {
+    this.renderer = renderer;
+    this.manager = renderer.manager;
+    this.owner = renderer.rootSurface;
+    this.records = renderer.popups;
+    this.disposed = false;
+    this.drag = null;
+    this.installSurface(this.owner, renderer.abort.signal);
+    this.owner.win.addEventListener('pagehide', () => {
+      // Preserve the last layout intent before closing owned browsing contexts.
+      this.captureAll();
+      if (this.manager.StorageKey && this.manager.AutoSave) this.manager.SaveToStorage();
+      for (const id of [...this.records.keys()]) this.close(id, { reason: 'OwnerClosed' });
+    }, { signal: renderer.abort.signal });
+    this.stylesObserver = new this.owner.win.MutationObserver(() => {
+      for (const rec of this.records.values()) rec.stylesDirty = true;
+      renderer.requestRender();
+    });
+    this.stylesObserver.observe(this.owner.doc.head, { childList: true, subtree: true, attributes: true, characterData: true });
+  }
+
+  find(subject) {
+    const model = subject instanceof LayoutFloatingWindow ? subject : subject?.FindParent?.(LayoutFloatingWindow);
+    return model ? this.records.get(model.Id) : null;
+  }
+
+  reserve(subject, bounds = {}) {
+    const existing = subject instanceof LayoutFloatingWindow ? this.records.get(subject.Id) : null;
+    if (existing && this.alive(existing)) return existing;
+    if (!this.manager.AllowBrowserWindows) return this.blocked(subject, new Error('Browser-window hosting is disabled.'), bounds.BrowserWindowFallback);
+    const seed = subject instanceof LayoutContent || subject instanceof LayoutFloatingWindow ? subject : contents(subject)[0];
+    const width = Math.max(this.manager.FloatingWindowMinWidth, Math.round(bounds.FloatingWidth ?? seed?.FloatingWidth ?? 640));
+    const height = Math.max(this.manager.FloatingWindowMinHeight, Math.round(bounds.FloatingHeight ?? seed?.FloatingHeight ?? 440));
+    const native = subject instanceof LayoutFloatingWindow && subject.FloatingWindowMode === 'BrowserWindow';
+    const left = Math.round(bounds.FloatingLeft ?? (native ? seed.FloatingLeft : this.owner.win.screenX + 60));
+    const top = Math.round(bounds.FloatingTop ?? (native ? seed.FloatingTop : this.owner.win.screenY + 60));
+    if (![left, top, width, height].every(Number.isFinite)) throw new TypeError('Floating window bounds must be finite');
+    let window;
+    try {
+      // A unique, unnamed context prevents collisions with unrelated tabs.
+      window = this.owner.win.open('about:blank', '_blank', `popup=yes,resizable=yes,scrollbars=no,left=${left},top=${top},width=${width},height=${height}`);
+      if (!window || window.closed) throw new Error('The browser blocked this popup. Open one window per user gesture or allow popups for this site.');
+      void window.document; // Require same-origin access; never navigate untrusted URLs.
+      return { window, reserved: true, initial: { FloatingLeft: left, FloatingTop: top, FloatingWidth: width, FloatingHeight: height } };
+    } catch (error) {
+      try { window?.close(); } catch { /* Already inaccessible. */ }
+      return this.blocked(subject, error, bounds.BrowserWindowFallback);
+    }
+  }
+
+  blocked(subject, error, fallback = this.manager.BrowserWindowFallback) {
+    this.manager._emit('BrowserWindowBlocked', { Model: subject, Error: error, Fallback: fallback });
+    this.manager._emit('Error', { Error: error, Operation: 'Open browser window' });
+    return null;
+  }
+
+  attach(model, reservation) {
+    if (!reservation) return null;
+    if (!reservation.reserved) {
+      reservation.model = model;
+      this.focus(model);
+      return reservation.window;
+    }
+    const window = reservation.window, doc = window.document;
+    const abort = new window.AbortController();
+    const rec = { window, doc, model, modelId: model.Id, abort, closing: false, styles: [], stylesDirty: true, last: null };
+    try {
+      const base = doc.createElement('base'); base.href = this.owner.doc.baseURI; doc.head.append(base);
+      const charset = doc.createElement('meta'); charset.setAttribute('charset', 'utf-8'); doc.head.append(charset);
+      const style = doc.createElement('style'); style.textContent = POPUP_CSS;
+      // Preserve a CSP nonce when the host application supplies one.
+      const nonce = this.owner.doc.querySelector('style[nonce],script[nonce]')?.nonce;
+      if (nonce) style.nonce = nonce;
+      rec.localStyle = style;
+      const shell = element(doc, 'div', 'ad-manager ad-popup-shell'); shell.tabIndex = 0;
+      shell.setAttribute('role', 'region'); shell.setAttribute('aria-label', 'Floating docking workspace');
+      shell.dataset.floatingId = model.Id;
+      const bar = element(doc, 'div', 'ad-popup-toolbar'); bar.draggable = true; bar.dataset.adDrag = model.Id;
+      rec.caption = element(doc, 'strong');
+      rec.dock = button(doc, 'dock', 'Dock back into workspace', () => this.manager.Dock(this.liveModel(rec)));
+      rec.inPage = button(doc, 'restore', 'Move to in-page floating window', () => this.manager.FloatInPage(this.liveModel(rec)));
+      rec.closeButton = button(doc, 'close', 'Close floating window', () => this.manager.CloseFloatingWindow(this.liveModel(rec)));
+      bar.append(rec.caption, rec.dock, rec.inPage, rec.closeButton);
+      const body = element(doc, 'div', 'ad-popup-body');
+      const overlay = element(doc, 'div', 'ad-drag-overlay'); overlay.setAttribute('aria-hidden', 'true');
+      const parking = element(doc, 'div', 'ad-parking'); parking.hidden = true;
+      const live = element(doc, 'div', 'ad-live'); live.setAttribute('aria-live', 'polite');
+      shell.append(bar, body, overlay, parking, live); doc.body.replaceChildren(shell);
+      Object.assign(rec, { shell, body, surface: { doc, win: window, host: shell, workspace: body, overlay, parking, live, floating: model } });
+      this.records.set(model.Id, rec);
+      this.syncStyles(rec);
+      const opts = { signal: abort.signal };
+      this.installSurface(rec.surface, abort.signal);
+      shell.addEventListener('keydown', e => this.renderer.onKeyDown(e), opts);
+      shell.addEventListener('keyup', e => this.renderer.onKeyUp(e), opts);
+      shell.addEventListener('focusin', e => {
+        const id = e.target.closest?.('[data-ad-content]')?.dataset.adContent;
+        const item = id && this.manager.Find(id); if (item) this.manager.Activate(item);
+      }, opts);
+      window.addEventListener('focus', () => {
+        const liveModel = this.liveModel(rec);
+        const items = liveModel ? contents(liveModel) : [];
+        const selected = items.find(x => x.IsSelected) || items[0];
+        if (selected && !selected.IsActive) this.manager.Activate(selected);
+      }, opts);
+      window.addEventListener('blur', () => this.renderer.cancelInteraction(), opts);
+      doc.addEventListener('pointerdown', e => {
+        if (this.renderer.menu && !this.renderer.menu.contains(e.target)) this.renderer.closeMenu();
+      }, opts);
+      // pagehide does not run for a canceled beforeunload prompt. Heartbeat also
+      // catches OS/browser closes and inaccessible navigations without unload.
+      window.addEventListener('pagehide', () => this.nativeClosed(rec, 'NavigationOrClose'), opts);
+      window.addEventListener('resize', () => this.scheduleCapture(rec), opts);
+      if (!this.timer) this.timer = this.owner.win.setInterval(() => this.tick(), 250);
+      rec.maximized = false;
+      this.capture(rec);
+      rec.applied = this.geometry(model);
+      this.manager._emit('BrowserWindowOpened', { Model: model, Window: window, Control: this.renderer.controlFor(model) });
+      this.renderer.requestRender();
+      window.focus();
+      return window;
+    } catch (error) {
+      if (this.records.has(model.Id)) this.close(model.Id, { reason: 'OpenFailed' });
+      else { abort.abort(); try { window.close(); } catch {} }
+      this.blocked(model, error);
+      return null;
+    }
+  }
+
+  geometry(model) { return Object.fromEntries(GEOMETRY.map(key => [key, model[key]])); }
+  liveModel(rec) { const m = this.manager.FindById(rec.modelId); return m instanceof LayoutFloatingWindow ? m : null; }
+  alive(rec) { try { return !rec.window.closed && rec.window.document === rec.doc; } catch { return false; } }
+  measure(rec) {
+    return { FloatingLeft: rec.window.screenX, FloatingTop: rec.window.screenY, FloatingWidth: rec.window.innerWidth, FloatingHeight: rec.window.innerHeight };
+  }
+  same(a, b) { return a && b && GEOMETRY.every(key => a[key] === b[key]); }
+
+  capture(rec) {
+    const model = this.liveModel(rec);
+    if (!model || !this.alive(rec) || rec.closing) return;
+    const actual = this.measure(rec);
+    if (!Object.values(actual).every(Number.isFinite) || actual.FloatingWidth < 1 || actual.FloatingHeight < 1) return;
+    if (!this.same(this.geometry(model), actual)) {
+      this.manager.Transaction('Move or resize browser window', () => {
+        for (const key of GEOMETRY) model[key] = actual[key];
+        for (const item of contents(model)) for (const key of GEOMETRY) item[key] = actual[key];
+      });
+      this.manager._emit('BrowserWindowBoundsChanged', { Model: model, Window: rec.window, Bounds: actual });
+    }
+    rec.last = actual; rec.applied = this.geometry(model); rec.pending = false;
+  }
+  scheduleCapture(rec) { rec.pending = true; rec.changedAt = Date.now(); this.renderer.requestRender(); }
+  captureAll() { for (const rec of this.records.values()) this.capture(rec); }
+  tick() {
+    if (this.disposed) return;
+    for (const rec of [...this.records.values()]) {
+      if (!this.alive(rec)) { this.nativeClosed(rec, 'NativeClose'); continue; }
+      const actual = this.measure(rec);
+      if (!this.same(rec.observed, actual)) { rec.observed = actual; this.scheduleCapture(rec); }
+      else if (rec.pending && Date.now() - rec.changedAt >= 200) this.capture(rec);
+    }
+  }
+
+  syncStyles(rec) {
+    if (!rec.stylesDirty) return;
+    const clones = [];
+    for (const source of this.owner.doc.querySelectorAll('link[rel="stylesheet"],style')) {
+      const clone = source.cloneNode(true);
+      if (clone.tagName === 'LINK') clone.href = source.href;
+      if (source.nonce) clone.nonce = source.nonce;
+      clones.push(clone);
+    }
+    // Constructed/adopted sheets cannot be shared across documents. Copy their
+    // rules when readable; normal cross-origin <link> sheets are cloned above.
+    for (const sheet of this.owner.doc.adoptedStyleSheets || []) {
+      try { const clone = rec.doc.createElement('style'); clone.textContent = [...sheet.cssRules].map(r => r.cssText).join('\n'); clones.push(clone); } catch {}
+    }
+    for (const clone of clones) rec.doc.head.append(clone);
+    for (const old of rec.styles) old.remove();
+    rec.styles = clones; rec.doc.head.append(rec.localStyle); rec.stylesDirty = false;
+  }
+
+  render(model, rec) {
+    if (!this.alive(rec)) { this.nativeClosed(rec, 'NativeClose'); return false; }
+    rec.model = model; rec.surface.floating = model;
+    this.syncStyles(rec);
+    rec.shell.dataset.theme = this.owner.host.dataset.theme;
+    rec.shell.dir = this.owner.host.dir;
+    const computed = this.owner.win.getComputedStyle(this.owner.host);
+    for (const key of rec.variables || []) rec.shell.style.removeProperty(key);
+    rec.variables = [...computed].filter(key => key.startsWith('--'));
+    for (const key of rec.variables) rec.shell.style.setProperty(key, computed.getPropertyValue(key));
+    const items = contents(model), selected = items.find(x => x.IsActive) || items.find(x => x.IsSelected) || items[0];
+    rec.doc.title = selected?.Title || 'Floating window'; rec.caption.textContent = rec.doc.title;
+    rec.dock.disabled = !items.every(x => x.CanDock && x.CanMove && x.IsEnabled);
+    rec.inPage.disabled = !items.every(x => x.CanFloat && x.CanMove && x.IsEnabled);
+    rec.closeButton.disabled = !items.every(x => x instanceof LayoutDocument ? x.CanClose : x.CanHide || x.CanClose);
+    const active = rec.doc.activeElement;
+    const selection = active && 'selectionStart' in active ? [active.selectionStart, active.selectionEnd, active.selectionDirection] : null;
+    this.renderer.withSurface(rec.surface, () => {
+      const node = model.RootPanel ? this.renderer.renderNode(model.RootPanel) : null;
+      this.renderer.sync(rec.body, node ? [node] : []);
+    });
+    if (active?.isConnected && active.ownerDocument === rec.doc && rec.doc.activeElement !== active) {
+      try { active.focus({ preventScroll: true }); if (selection?.[0] != null) active.setSelectionRange(...selection); } catch {}
+    }
+    // Model edits (including history restore) use the same AvalonDock geometry.
+    const requested = this.geometry(model);
+    if (!this.same(rec.applied, requested)) this.applyBounds(rec, requested);
+    if (rec.maximized !== model.IsMaximized) this.maximize(model, model.IsMaximized);
+    return true;
+  }
+
+  applyBounds(rec, bounds) {
+    if (!this.alive(rec)) return false;
+    try {
+      const current = this.measure(rec);
+      if (current.FloatingLeft !== bounds.FloatingLeft || current.FloatingTop !== bounds.FloatingTop) rec.window.moveTo(bounds.FloatingLeft, bounds.FloatingTop);
+      if (current.FloatingWidth !== bounds.FloatingWidth || current.FloatingHeight !== bounds.FloatingHeight) {
+        rec.window.resizeTo(Math.max(this.manager.FloatingWindowMinWidth, bounds.FloatingWidth) + Math.max(0, rec.window.outerWidth - rec.window.innerWidth), Math.max(this.manager.FloatingWindowMinHeight, bounds.FloatingHeight) + Math.max(0, rec.window.outerHeight - rec.window.innerHeight));
+      }
+      rec.applied = { ...bounds }; this.scheduleCapture(rec); return true;
+    } catch (error) { this.manager._emit('Error', { Error: error, Operation: 'Set browser window bounds' }); return false; }
+  }
+  maximize(model, maximize = true) {
+    const rec = this.records.get(model.Id); if (!rec || !this.alive(rec)) return false;
+    if (rec.maximized === maximize) return true;
+    if (maximize) {
+      rec.restore = this.measure(rec);
+      const s = rec.window.screen;
+      this.applyBounds(rec, { FloatingLeft: s.availLeft ?? 0, FloatingTop: s.availTop ?? 0, FloatingWidth: s.availWidth, FloatingHeight: s.availHeight - Math.max(0, rec.window.outerHeight - rec.window.innerHeight) });
+    } else if (rec.restore) this.applyBounds(rec, rec.restore);
+    rec.maximized = maximize;
+    // Browser window managers ultimately decide whether move/resize is allowed.
+    return true;
+  }
+  focus(model) { const rec = this.records.get(model?.Id); if (!rec || !this.alive(rec)) return false; rec.window.focus(); return true; }
+
+  nativeClosed(rec, reason) {
+    if (rec.closing || this.disposed) return;
+    const model = this.liveModel(rec);
+    this.close(rec.modelId, { reason });
+    if (!model || model.Root !== this.manager.Layout || this.manager._disposed) return;
+    this.manager.Transaction('Return closed browser window', () => {
+      model.FloatingWindowMode = 'InPage'; model.FloatingLeft = 40; model.FloatingTop = 40; model.IsMaximized = false;
+      const behavior = this.manager.BrowserWindowCloseBehavior;
+      // A native close cannot be canceled by a layout event. On a veto, retain
+      // all content in the owner instead of reopening a popup or losing data.
+      if (behavior === 'Dock') this.manager.Dock(model);
+      else if (behavior === 'Close') this.manager.CloseFloatingWindow(model);
+    });
+    this.renderer.requestRender();
+  }
+
+  close(id, { reason = 'HostChanged', closeWindow = true } = {}) {
+    const rec = this.records.get(id); if (!rec || rec.closing) return;
+    rec.closing = true;
+    if (this.renderer.frameWindow === rec.window) this.renderer.cancelRenderFrame();
+    if (this.renderer.menu?.ownerDocument === rec.doc) this.renderer.closeMenu();
+    if (this.renderer.navigator?.ownerDocument === rec.doc) this.renderer.closeNavigator(false);
+    this.renderer.cancelInteraction();
+    rec.abort.abort();
+    // Adopt the original connected DOM back before closing the native document.
+    for (const child of [...rec.body.children, ...rec.surface.parking.children]) moveNode(this.owner.parking, child);
+    this.records.delete(id);
+    if (closeWindow) { try { if (!rec.window.closed) rec.window.close(); } catch {} }
+    if (!this.records.size && this.timer) { this.owner.win.clearInterval(this.timer); this.timer = null; }
+    this.manager._emit('BrowserWindowClosed', { Model: this.liveModel(rec) || rec.model, Window: rec.window, Reason: reason });
+    this.renderer.requestRender();
+  }
+
+  reconcile() {
+    for (const rec of [...this.records.values()]) {
+      const model = this.liveModel(rec);
+      if (!model || model.FloatingWindowMode !== 'BrowserWindow' || !this.manager.AllowBrowserWindows) this.close(rec.modelId, { reason: !model ? 'LayoutRemoved' : 'HostChanged' });
+    }
+  }
+
+  installSurface(surface, signal) {
+    const run = fn => event => this.renderer.withSurface(surface, () => fn.call(this, event, surface));
+    const opts = { signal };
+    surface.doc.addEventListener('visibilitychange', () => { this.renderer.cancelRenderFrame(); this.renderer.requestRender(); }, opts);
+    surface.host.addEventListener('dragstart', run(this.dragStart), opts);
+    surface.host.addEventListener('dragover', run(this.dragOver), opts);
+    surface.host.addEventListener('drop', run(this.drop), opts);
+    surface.host.addEventListener('dragend', run(this.dragEnd), opts);
+    surface.host.addEventListener('dragleave', e => { if (!surface.host.contains(e.relatedTarget)) surface.overlay.replaceChildren(); }, opts);
+    surface.host.addEventListener('keydown', e => { if (e.key === 'Escape') this.clearDrag(); }, opts);
+  }
+  useNativeDrag(event) { return event.pointerType !== 'touch' && this.manager.EnableCrossWindowDocking && this.records.size > 0; }
+  dragStart(event, surface) {
+    const target = event.target.closest?.('[data-ad-drag]');
+    if (!target || event.target.closest?.('button') || !this.manager.EnableCrossWindowDocking) return;
+    const subject = this.manager.FindById(target.dataset.adDrag);
+    const items = subject ? this.manager._subjectItems(subject) : [];
+    if (!items.length || !items.every(x => x.CanMove && x.IsEnabled) || subject instanceof LayoutContent && subject.Parent instanceof LayoutPane && !subject.Parent.CanRepositionItems) { event.preventDefault(); return; }
+    this.renderer.cancelInteraction();
+    const token = this.owner.win.crypto?.randomUUID?.() || `${Date.now()}-${Math.random()}`;
+    this.drag = { subject, items, token, source: surface };
+    event.dataTransfer.effectAllowed = 'move';
+    event.dataTransfer.setData(DRAG_TYPE, token);
+    // Text is a label only, never executable or deserialized content.
+    event.dataTransfer.setData('text/plain', items[0].Title);
+    surface.host.classList.add('ad-dragging');
+  }
+  dragOver(event) {
+    const payload = this.drag;
+    if (!payload || payload.subject.Root !== this.manager.Layout || !event.dataTransfer.types.includes(DRAG_TYPE)) return;
+    const drop = event.ctrlKey ? null : this.renderer.findDrop(payload, event.clientX, event.clientY);
+    this.renderer.drawDropGuides(payload, drop, event.clientX, event.clientY, event.ctrlKey);
+    if (drop?.position && this.manager.CanDockAt(payload.subject, drop.target, drop.position)) { event.preventDefault(); event.dataTransfer.dropEffect = 'move'; }
+  }
+  drop(event) {
+    const payload = this.drag;
+    if (!payload || event.dataTransfer.getData(DRAG_TYPE) !== payload.token || payload.subject.Root !== this.manager.Layout) return;
+    const drop = event.ctrlKey ? null : this.renderer.findDrop(payload, event.clientX, event.clientY);
+    if (!drop?.position || !this.manager.CanDockAt(payload.subject, drop.target, drop.position)) { this.clearDrag(); return; }
+    event.preventDefault(); event.stopPropagation();
+    this.clearDrag();
+    this.manager.Dock(payload.subject, drop.target, drop.position, drop.index);
+    this.renderer.focusContent(payload.items[0]);
+  }
+  dragEnd() { this.clearDrag(); }
+  clearDrag() {
+    this.drag = null;
+    for (const surface of [this.owner, ...[...this.records.values()].map(r => r.surface)]) {
+      surface.overlay.replaceChildren(); surface.host.classList.remove('ad-dragging');
+    }
+  }
+  dispose() {
+    this.disposed = true; this.clearDrag(); this.stylesObserver.disconnect();
+    for (const id of [...this.records.keys()]) this.close(id, { reason: 'Disposed' });
+    if (this.timer) this.owner.win.clearInterval(this.timer);
+  }
+}
+
+__exports.BrowserWindowHost=BrowserWindowHost;
+},
 "web-component.js":function(__exports,__require){
 const { DockingManager }=__require("manager.js");
 const { LayoutTypes, LayoutRoot, LayoutPanel, LayoutContent, LayoutAnchorSide }=__require("model.js");
@@ -2697,7 +3212,7 @@ function parseLayoutElement(element) {
   return model;
 }
 class AvalonDockElement extends HTMLElementBase {
-  static get observedAttributes(){return['theme','dir'];}
+  static get observedAttributes(){return['theme','dir','floating-window-mode','browser-window-close-behavior','allow-browser-windows'];}
   connectedCallback(){
     if(this.manager)return;
     queueMicrotask(()=>{
@@ -2705,12 +3220,12 @@ class AvalonDockElement extends HTMLElementBase {
       const definition=[...this.children].find(child=>child.localName.replace(/-/g,'').toLowerCase()==='layoutroot');
       const layout=this._layout||(definition?parseLayoutElement(definition):null);
       definition?.remove();
-      this.manager=new DockingManager(this,{...(this.options||{}),...(layout?{Layout:layout}:{}),Theme:this.getAttribute('theme')||this.options?.Theme||'dark',FlowDirection:this.getAttribute('dir')==='rtl'?'RightToLeft':'LeftToRight'});
+      this.manager=new DockingManager(this,{...(this.options||{}),...(this.hasAttribute('floating-window-mode')?{FloatingWindowMode:this.getAttribute('floating-window-mode')}:{}),...(this.hasAttribute('browser-window-close-behavior')?{BrowserWindowCloseBehavior:this.getAttribute('browser-window-close-behavior')}:{}),...(this.hasAttribute('allow-browser-windows')?{AllowBrowserWindows:this.getAttribute('allow-browser-windows')!=='false'}:{}),...(layout?{Layout:layout}:{}),Theme:this.getAttribute('theme')||this.options?.Theme||'dark',FlowDirection:this.getAttribute('dir')==='rtl'?'RightToLeft':'LeftToRight'});
       this.dispatchEvent(new CustomEvent('ready',{detail:{manager:this.manager},bubbles:true}));
     });
   }
   disconnectedCallback(){queueMicrotask(()=>{if(!this.isConnected&&this.manager){this._layout=this.manager.Layout;this.manager.Dispose();this.manager=null;}});}
-  attributeChangedCallback(name,_old,value){if(!this.manager)return;if(name==='theme')this.manager.Theme=value||'dark';if(name==='dir')this.manager.FlowDirection=value==='rtl'?'RightToLeft':'LeftToRight';}
+  attributeChangedCallback(name,_old,value){if(!this.manager)return;if(name==='floating-window-mode')this.manager.FloatingWindowMode=value||'InPage';if(name==='browser-window-close-behavior')this.manager.BrowserWindowCloseBehavior=value||'Dock';if(name==='allow-browser-windows')this.manager.AllowBrowserWindows=value!=='false';if(name==='theme')this.manager.Theme=value||'dark';if(name==='dir')this.manager.FlowDirection=value==='rtl'?'RightToLeft':'LeftToRight';}
   get Layout(){return this.manager?.Layout||this._layout||null;}
   set Layout(value){if(this.manager)this.manager.Layout=value;else this._layout=value;}
   get DockingManager(){return this.manager;}

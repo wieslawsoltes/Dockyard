@@ -1,4 +1,6 @@
 export * from './events.js';
+export * from './floating-window.js';
+import * as WindowHosting from './floating-window.js';
 export * from './model.js';
 export * from './manager.js';
 export * from './serialization.js';
@@ -17,6 +19,6 @@ import { AvalonDockElement, registerAvalonDock } from './web-component.js';
 export { Controls, Themes, Serialization };
 export const Layout = Object.freeze({ ...Models, Serialization });
 export const Commands = Object.freeze({ RelayCommand: Events.RelayCommand });
-export const version = '0.1.0';
-export const AvalonDock = Object.freeze({ ...Models, ...Serialization, ...Themes, ...Controls, ...Events, ...Items, DockingManager, AvalonDockElement, registerAvalonDock, Layout, Controls, Themes, Serialization, Commands, version });
+export const version = '0.2.0';
+export const AvalonDock = Object.freeze({ ...Models, ...Serialization, ...Themes, ...Controls, ...Events, ...Items, ...WindowHosting, DockingManager, AvalonDockElement, registerAvalonDock, Layout, Controls, Themes, Serialization, Commands, version });
 export default AvalonDock;

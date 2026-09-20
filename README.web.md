@@ -15,6 +15,28 @@ A reusable, dependency-free JavaScript docking library and interactive sample ap
 
 ![Dockyard sample workspace](docs/images/dockyard.png)
 
+## Real browser windows
+
+Version 0.2.0 adds configurable native browser-window hosting beside in-page floating.
+Documents, document groups and nested tool groups share one manager and keep their
+original DOM nodes. Window menus, splitters, keyboard navigation and cross-window
+HTML drag-and-drop are document-aware. The owner remains the application lifetime.
+
+```js
+const manager = new DockingManager(host, {
+  FloatingWindowMode: 'BrowserWindow', // default is still 'InPage'
+  BrowserWindowCloseBehavior: 'Dock',
+  BrowserWindowFallback: 'InPage'
+});
+// Call from user gestures to satisfy browser popup policy.
+openButton.onclick = () => manager.FloatInBrowserWindow(editor);
+inPageButton.onclick = () => manager.FloatInPage(editor);
+```
+
+See [the complete browser-window contract](docs/BROWSER-WINDOWS.md) and
+[the dedicated example](sample/multi-window.html), including popup denial,
+restored layouts, closing, bounds, framework integration and test coverage.
+
 ## Run it
 
 Open **`standalone.html`** for the self-contained Dockyard showcase. It contains the library, styles, and sample code; no installation, build, CDN, server, or account is required. Browser policies can still restrict local files, pop-ups, downloads, or storage. The application handles unavailable storage and blocked pop-ups without destroying the layout.
